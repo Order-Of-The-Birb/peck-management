@@ -34,6 +34,8 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'api_token',
+        'api_token_plain',
     ];
 
     /**
@@ -46,6 +48,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'api_token_plain' => 'encrypted',
         ];
     }
 

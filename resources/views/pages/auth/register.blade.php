@@ -10,13 +10,13 @@
             <!-- Name -->
             <flux:input
                 name="name"
-                :label="__('Name')"
+                :label="__('Username')"
                 :value="old('name')"
                 type="text"
                 required
                 autofocus
                 autocomplete="name"
-                :placeholder="__('Full name')"
+                :placeholder="__('Username')"
             />
 
             <!-- Email Address -->

@@ -12,23 +12,48 @@
 
             <flux:sidebar.nav>
                 <flux:sidebar.group :heading="__('Platform')" class="grid">
-                    <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Dashboard') }}
+                    <flux:sidebar.item
+                        icon="home"
+                        :href="route('dashboard')"
+                        :current="request()->routeIs('dashboard')
+                            && ! request()->routeIs('dashboard.members-missing-discord')
+                            && ! request()->routeIs('dashboard.unverified-users')
+                            && ! request()->routeIs('dashboard.alt-accounts')"
+                        wire:navigate
+                    >
+                        {{ __('All users') }}
+                    </flux:sidebar.item>
+
+                    <flux:sidebar.item
+                        icon="user-group"
+                        :href="route('dashboard.members-missing-discord')"
+                        :current="request()->routeIs('dashboard.members-missing-discord')"
+                        wire:navigate
+                    >
+                        {{ __('Missing Discord IDs') }}
+                    </flux:sidebar.item>
+
+                    <flux:sidebar.item
+                        icon="user"
+                        :href="route('dashboard.unverified-users')"
+                        :current="request()->routeIs('dashboard.unverified-users')"
+                        wire:navigate
+                    >
+                        {{ __('Unverified Users') }}
+                    </flux:sidebar.item>
+
+                    <flux:sidebar.item
+                        icon="users"
+                        :href="route('dashboard.alt-accounts')"
+                        :current="request()->routeIs('dashboard.alt-accounts')"
+                        wire:navigate
+                    >
+                        {{ __('Alt Accounts') }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 
             <flux:spacer />
-
-            <flux:sidebar.nav>
-                <flux:sidebar.item icon="folder-git-2" href="https://github.com/laravel/livewire-starter-kit" target="_blank">
-                    {{ __('Repository') }}
-                </flux:sidebar.item>
-
-                <flux:sidebar.item icon="book-open-text" href="https://laravel.com/docs/starter-kits#livewire" target="_blank">
-                    {{ __('Documentation') }}
-                </flux:sidebar.item>
-            </flux:sidebar.nav>
 
             <x-desktop-user-menu class="hidden lg:block" :name="auth()->user()->name" />
         </flux:sidebar>
