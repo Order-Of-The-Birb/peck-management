@@ -1,24 +1,23 @@
 <div>
     <div class="flex h-full w-full flex-1 flex-col gap-6">
         <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-            <div class="flex flex-col gap-4 md:flex-row md:items-end">
+            <div class="flex gap-5 w-full flex-row items-end">
                 <div>
                     <flux:heading size="xl">{{ __('Users') }}</flux:heading>
                     <flux:text>{{ __('View and edit records') }}</flux:text>
                 </div>
-
-                <div class="ml-auto flex flex-row flex-wrap items-end justify-end gap-3">
+                    
+                <div class="flex items-end gap-3 pr-15">
                     @if ($this->canEdit())
                         <flux:button type="button" variant="primary" wire:click="openCreateUserModal" class="w-auto shrink-0">
                             {{ __('Add User') }}
                         </flux:button>
                     @endif
-
-                    <div class="w-[42rem] max-w-full shrink-0">
+                    
+                    <div class="w-3xl">
                         <flux:input
-                            wire:model.live.debounce.300ms="search"
-                            :label="__('Search')"
-                            :placeholder="__('Gaijin ID, username, status, or Discord ID')"
+                        wire:model.live.debounce.300ms="search"
+                        :placeholder="__('Search by Gaijin ID, username, status, or Discord ID')"
                         />
                     </div>
                 </div>
@@ -106,7 +105,7 @@
                                 <td class="px-3 py-2">{{ $peckUser->status }}</td>
                                 <td class="px-3 py-2">{{ $peckUser->discord_id ?? '—' }}</td>
                                 <td class="px-3 py-2">{{ $peckUser->tz ?? '—' }}</td>
-                                <td class="px-3 py-2">{{ $peckUser->joindate?->format('Y-m-d H:i') ?? '—' }}</td>
+                                <td class="px-3 py-2">{{ $peckUser->joindate?->format('Y-m-d') ?? '—' }}</td>
                                 <td class="px-3 py-2">{{ $peckUser->initiatorUser?->username ?? '—' }}</td>
                                 @if ($this->canEdit())
                                     <td class="px-3 py-2 text-right">
@@ -186,7 +185,7 @@
                             <flux:input
                                 wire:model="form.joindate"
                                 :label="__('Join Date')"
-                                type="datetime-local"
+                                type="date"
                             />
 
                             <flux:select wire:model="form.initiator" :label="__('Initiator')">
@@ -266,7 +265,7 @@
                         <flux:input
                             wire:model="newUserForm.joindate"
                             :label="__('Join Date')"
-                            type="datetime-local"
+                            type="date"
                         />
 
                         <flux:select wire:model="newUserForm.initiator" :label="__('Initiator')">

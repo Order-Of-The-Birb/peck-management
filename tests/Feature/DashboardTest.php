@@ -68,6 +68,22 @@ test('dashboard displays peck users', function () {
         ->assertSee((string) $peckUser->gaijin_id);
 });
 
+test('dashboard join date display and edit form are date-only', function () {
+    $this->actingAs(createDashboardUser(level: 1));
+
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 710001,
+        'username' => 'date-only-user',
+        'joindate' => '2026-03-20 14:45:00',
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->assertSee('2026-03-20')
+        ->assertDontSee('2026-03-20 14:45')
+        ->call('selectUser', $peckUser->gaijin_id)
+        ->assertSet('form.joindate', '2026-03-20');
+});
+
 test('peck user data can be updated from the dashboard component', function () {
     $this->actingAs(createDashboardUser(level: 1));
 
@@ -90,7 +106,7 @@ test('peck user data can be updated from the dashboard component', function () {
         ->set('form.status', 'member')
         ->set('form.discord_id', '123456789')
         ->set('form.tz', '3')
-        ->set('form.joindate', '2026-01-15T08:30')
+        ->set('form.joindate', '2026-01-15')
         ->set('form.initiator', (string) $initiator->gaijin_id)
         ->call('save')
         ->assertHasNoErrors();
@@ -104,7 +120,7 @@ test('peck user data can be updated from the dashboard component', function () {
     expect($peckUser->status)->toBe('member');
     expect($peckUser->discord_id)->toBe(123456789);
     expect($peckUser->tz)->toBe(3);
-    expect($peckUser->joindate?->format('Y-m-d H:i:s'))->toBe('2026-01-15 08:30:00');
+    expect($peckUser->joindate?->toDateString())->toBe('2026-01-15');
     expect($peckUser->initiator)->toBe($initiator->gaijin_id);
 });
 
@@ -121,7 +137,7 @@ test('dashboard component can create peck user from modal form', function () {
         ->set('newUserForm.status', 'unverified')
         ->set('newUserForm.discord_id', '987654321')
         ->set('newUserForm.tz', '1')
-        ->set('newUserForm.joindate', '2026-02-01T10:15')
+        ->set('newUserForm.joindate', '2026-02-01')
         ->set('newUserForm.initiator', (string) $initiator->gaijin_id)
         ->call('createUser')
         ->assertSet('showCreateUserModal', false)
@@ -135,7 +151,7 @@ test('dashboard component can create peck user from modal form', function () {
     expect($createdUser->status)->toBe('unverified');
     expect($createdUser->discord_id)->toBe(987654321);
     expect($createdUser->tz)->toBe(1);
-    expect($createdUser->joindate?->format('Y-m-d H:i:s'))->toBe('2026-02-01 10:15:00');
+    expect($createdUser->joindate?->toDateString())->toBe('2026-02-01');
     expect($createdUser->initiator)->toBe($initiator->gaijin_id);
 });
 

@@ -194,7 +194,7 @@ class PeckUsersDashboard extends Component
             'discord_id' => $this->nullableString($peckUser->discord_id),
             'tz' => $this->nullableString($peckUser->tz),
             'status' => $peckUser->status,
-            'joindate' => $peckUser->joindate?->format('Y-m-d\TH:i'),
+            'joindate' => $peckUser->joindate?->format('Y-m-d'),
             'initiator' => $this->nullableString($peckUser->initiator),
         ];
 
@@ -285,7 +285,7 @@ class PeckUsersDashboard extends Component
             ],
             'form.joindate' => [
                 'nullable',
-                'date',
+                'date_format:Y-m-d',
             ],
             'form.initiator' => [
                 'nullable',
@@ -334,7 +334,7 @@ class PeckUsersDashboard extends Component
             ],
             'newUserForm.joindate' => [
                 'nullable',
-                'date',
+                'date_format:Y-m-d',
             ],
             'newUserForm.initiator' => [
                 'nullable',
