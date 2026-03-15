@@ -338,10 +338,7 @@ class PeckUsersDashboard extends Component
             return;
         }
 
-        $updatedGaijinId = (int) $validated['form']['gaijin_id'];
-
         $peckUser->fill([
-            'gaijin_id' => $updatedGaijinId,
             'username' => $validated['form']['username'],
             'discord_id' => $this->nullableInteger($validated['form']['discord_id']),
             'tz' => $this->nullableInteger($validated['form']['tz']),

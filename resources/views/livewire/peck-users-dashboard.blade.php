@@ -233,6 +233,7 @@
                                 type="number"
                                 inputmode="numeric"
                                 required
+                                readonly
                             />
 
                             <flux:input
