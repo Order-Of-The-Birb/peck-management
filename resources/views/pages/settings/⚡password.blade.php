@@ -3,6 +3,7 @@
 use App\Concerns\PasswordValidationRules;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -37,6 +38,11 @@ new #[Title('Password settings')] class extends Component {
 
         $this->dispatch('password-updated');
     }
+    #[Computed]
+    public function adminAccess(): bool
+    {
+        return (int) Auth::user()->level === 2;
+    }
 }; ?>
 
 <section class="w-full">
@@ -44,7 +50,7 @@ new #[Title('Password settings')] class extends Component {
 
     <flux:heading class="sr-only">{{ __('Password settings') }}</flux:heading>
 
-    <x-pages::settings.layout :heading="__('Update password')" :subheading="__('Ensure your account is using a long, random password to stay secure')">
+    <x-pages::settings.layout :heading="__('Update password')" :subheading="__('Ensure your account is using a long, random password to stay secure')" :admin-access="$this->adminAccess">
         <form method="POST" wire:submit="updatePassword" class="mt-6 space-y-6">
             <flux:input
                 wire:model="current_password"
