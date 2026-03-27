@@ -60,7 +60,7 @@
                                     @endif
                                 </button>
                             </th>
-                            <th class="px-3 py-2">
+                            <th class="w-44 px-3 py-2">
                                 <button type="button" wire:click="sort('discord_id')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
                                     {{ __('Discord ID') }}
                                     @if ($this->isSortedBy('discord_id'))
@@ -68,7 +68,7 @@
                                     @endif
                                 </button>
                             </th>
-                            <th class="px-3 py-2">
+                            <th class="w-20 px-3 py-2">
                                 <button type="button" wire:click="sort('tz')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
                                     {{ __('TZ') }}
                                     @if ($this->isSortedBy('tz'))
@@ -269,11 +269,14 @@
                                 type="date"
                             />
 
-                            <flux:select wire:model="form.initiator" :label="__('Initiator')">
-                                <option value="">{{ __('No initiator') }}</option>
+                            <flux:select wire:model="form.initiator" :label="__('Initiator Officer')">
+                                <option value="">{{ __('No initiator officer') }}</option>
                                 @foreach ($initiatorOptions as $initiatorOption)
                                     <option value="{{ $initiatorOption->gaijin_id }}">
-                                        {{ $initiatorOption->username }} ({{ $initiatorOption->gaijin_id }})
+                                        {{ $initiatorOption->peckUser?->username ?? $initiatorOption->gaijin_id }}
+                                        @if ($initiatorOption->rank)
+                                            ({{ $initiatorOption->rank }})
+                                        @endif
                                     </option>
                                 @endforeach
                             </flux:select>
@@ -349,11 +352,14 @@
                             type="date"
                         />
 
-                        <flux:select wire:model="newUserForm.initiator" :label="__('Initiator')">
-                            <option value="">{{ __('No initiator') }}</option>
+                        <flux:select wire:model="newUserForm.initiator" :label="__('Initiator Officer')">
+                            <option value="">{{ __('No initiator officer') }}</option>
                             @foreach ($initiatorOptions as $initiatorOption)
                                 <option value="{{ $initiatorOption->gaijin_id }}">
-                                    {{ $initiatorOption->username }} ({{ $initiatorOption->gaijin_id }})
+                                    {{ $initiatorOption->peckUser?->username ?? $initiatorOption->gaijin_id }}
+                                    @if ($initiatorOption->rank)
+                                        ({{ $initiatorOption->rank }})
+                                    @endif
                                 </option>
                             @endforeach
                         </flux:select>

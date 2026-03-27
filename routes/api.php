@@ -1,9 +1,14 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\V1\UserController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
-    Route::get('getuser', function (Request $request) {});
-    Route::post('adduser', function (Request $request) {})->middleware('auth:sanctum');
+    Route::get('users', [UserController::class, 'index']);
+    Route::get('users/{peckUser:gaijin_id}', [UserController::class, 'show']);
+
+    Route::middleware('auth:sanctum')->group(function (): void {
+        Route::post('users', [UserController::class, 'store']);
+        Route::patch('users/{peckUser:gaijin_id}', [UserController::class, 'update']);
+    });
 });

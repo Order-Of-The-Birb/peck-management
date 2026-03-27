@@ -17,7 +17,7 @@ return new class extends Migration
             $table->dateTime("joindate", precision: 0)->nullable();
             $table->unsignedBigInteger("initiator")->nullable();
 
-            $table->foreign("initiator")->references("gaijin_id")->on("peck_users")->nullOnDelete();
+            $table->foreign("initiator")->references("gaijin_id")->on("officers")->nullOnDelete();
         });
         Schema::create("peck_alts", function (Blueprint $table) {
             $table->unsignedBigInteger("alt_id")->primary();

@@ -1,7 +1,9 @@
 <?php
 
 use App\Livewire\PeckUsersDashboard;
+use App\Models\Officer;
 use App\Models\PeckUser;
+use App\Models\User;
 use Livewire\Livewire;
 
 test('peck users dashboard component is discoverable and mountable', function () {
@@ -78,4 +80,50 @@ test('search does not match users by status', function () {
         ->set('search', 'member')
         ->assertDontSee($memberUser->username)
         ->assertDontSee($unverifiedUser->username);
+});
+
+test('create user only accepts initiators from the officers table', function () {
+    $admin = User::query()->create([
+        'name' => 'Dashboard Admin',
+        'email' => 'dashboard-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $officerUser = PeckUser::factory()->create([
+        'gaijin_id' => 900001,
+        'username' => 'authorized_initiator',
+    ]);
+
+    Officer::factory()->create([
+        'gaijin_id' => $officerUser->gaijin_id,
+        'rank' => 'Commander',
+    ]);
+
+    $nonOfficerUser = PeckUser::factory()->create([
+        'gaijin_id' => 900002,
+        'username' => 'unauthorized_initiator',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openCreateUserModal')
+        ->assertSeeHtml('value="'.$officerUser->gaijin_id.'"')
+        ->assertDontSeeHtml('value="'.$nonOfficerUser->gaijin_id.'"')
+        ->set('newUserForm.gaijin_id', '900003')
+        ->set('newUserForm.username', 'new_dashboard_user')
+        ->set('newUserForm.status', 'member')
+        ->set('newUserForm.initiator', (string) $nonOfficerUser->gaijin_id)
+        ->call('createUser')
+        ->assertHasErrors(['newUserForm.initiator' => 'exists'])
+        ->set('newUserForm.initiator', (string) $officerUser->gaijin_id)
+        ->call('createUser')
+        ->assertHasNoErrors();
+
+    expect(PeckUser::query()->find(900003)?->initiator)->toBe($officerUser->gaijin_id);
 });

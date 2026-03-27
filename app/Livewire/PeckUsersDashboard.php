@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Models\Officer;
 use App\Models\PeckUser;
 use Closure;
 use Illuminate\Contracts\View\View;
@@ -407,7 +408,7 @@ class PeckUsersDashboard extends Component
             'form.initiator' => [
                 'nullable',
                 'integer',
-                Rule::exists('peck_users', 'gaijin_id'),
+                Rule::exists('officers', 'gaijin_id'),
                 function (string $attribute, mixed $value, Closure $fail): void {
                     $gaijinId = $this->nullableInteger($this->form['gaijin_id'] ?? null);
 
@@ -456,7 +457,7 @@ class PeckUsersDashboard extends Component
             'newUserForm.initiator' => [
                 'nullable',
                 'integer',
-                Rule::exists('peck_users', 'gaijin_id'),
+                Rule::exists('officers', 'gaijin_id'),
                 function (string $attribute, mixed $value, Closure $fail): void {
                     $gaijinId = $this->nullableInteger($this->newUserForm['gaijin_id'] ?? null);
 
@@ -473,10 +474,13 @@ class PeckUsersDashboard extends Component
         $sortBy = $this->isSortableColumn($this->sortBy) ? $this->sortBy : 'gaijin_id';
         $sortDirection = $this->sortDirection === 'desc' ? 'desc' : 'asc';
 
-        $initiatorOptions = PeckUser::query()
-            ->orderBy('username')
-            ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+        $initiatorOptions = Officer::query()
+            ->select('officers.gaijin_id', 'officers.rank')
+            ->join('peck_users', 'peck_users.gaijin_id', '=', 'officers.gaijin_id')
+            ->with('peckUser')
+            ->orderBy('peck_users.username')
+            ->orderBy('officers.gaijin_id')
+            ->get();
 
         $shownUsers = PeckUser::query()
             ->with('initiatorUser')
