@@ -1,23 +1,34 @@
 <?php
+use App\Models\ApiKey;
 use Livewire\Component;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use App\Models\User;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 new #[Title('Profile settings')] class extends Component {
 	public ?string $selectedManagedUserId = null;
 	public string $selectedManagedUserLevel = '0';
-	public ?string $apiToken = null;
+	public string $apiToken = '';
+	public bool $showApiToken = false;
 
 	#region Mounting
 	public function mount(): void
 	{
 		$user = Auth::user();
 
-		$this->name = $user->name;
-		$this->email = $user->email;
-		$this->apiToken = $user->api_token_plain;
+		if (! $user instanceof User) {
+			abort(403);
+		}
+
+		$this->apiToken = ApiKey::query()
+			->firstOrCreate(
+				['owner' => $user->id],
+				['key' => Str::random(64)],
+			)
+			->key;
 
 		if ($this->canManageUserLevels()) {
 			$this->initializeSelectedManagedUser();
@@ -127,6 +138,16 @@ new #[Title('Profile settings')] class extends Component {
 	{
 		return filled($this->apiToken);
 	}
+
+	public function toggleApiTokenVisibility(): void
+	{
+		$this->showApiToken = ! $this->showApiToken;
+	}
+
+	public function copyApiToken(): void
+	{
+		$this->dispatch('copy-to-clipboard', text: $this->apiToken);
+	}
 	#endregion
 }; ?>
 
@@ -182,5 +203,26 @@ new #[Title('Profile settings')] class extends Component {
 				{{ __('Saved.') }}
 			</x-action-message>
 		</div>
+		<div class="my-6 space-y-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
+			<div class="flex items-center gap-2">
+				<flux:heading size="lg">{{ __('API Key') }}</flux:heading>
+			</div>
+			<div class="space-y-3">
+				<input type="{{ $showApiToken ? 'text' : 'password' }}" value="{{ $apiToken }}" readonly class="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 font-mono text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100">
+				<div class="flex items-center gap-2">
+					<flux:button type="button" wire:click="toggleApiTokenVisibility">
+						{{ $showApiToken ? __('Hide') : __('Show') }}
+					</flux:button>
+					<flux:button type="button" wire:click="copyApiToken" :disabled="! $this->hasApiToken()">
+						{{ __('Copy') }}
+					</flux:button>
+				</div>
+			</div>
+		</div>
 	</x-pages::settings.layout>
+	<script>
+		window.addEventListener('copy-to-clipboard', e => {
+			navigator.clipboard.writeText(e.detail.text);
+		});
+	</script>
 </section>
