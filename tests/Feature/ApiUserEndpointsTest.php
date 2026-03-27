@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\ApiKey;
 use App\Models\Officer;
 use App\Models\PeckUser;
 use App\Models\User;
@@ -35,8 +36,9 @@ test('api users index returns filtered records', function () {
     $response->assertOk()
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.gaijin_id', $matchingUser->gaijin_id)
-        ->assertJsonPath('data.0.initiator_username', $matchingOfficer->username)
-        ->assertJsonPath('data.0.initiator_rank', 'Commander');
+        ->assertJsonPath('data.0.initiator', $matchingOfficer->gaijin_id)
+        ->assertJsonMissingPath('data.0.initiator_username')
+        ->assertJsonMissingPath('data.0.initiator_rank');
 
     expect(collect($response->json('data'))->pluck('gaijin_id'))
         ->not->toContain($nonMatchingUser->gaijin_id);
@@ -54,7 +56,32 @@ test('api users show returns a single record', function () {
         ->assertJsonPath('data.username', 'show_target');
 });
 
-test('api users store requires sanctum authentication', function () {
+test('api users index supports page query without pagination metadata in response', function () {
+    PeckUser::factory()->create([
+        'gaijin_id' => 811001,
+        'username' => 'page_target_1',
+    ]);
+
+    PeckUser::factory()->create([
+        'gaijin_id' => 811002,
+        'username' => 'page_target_2',
+    ]);
+
+    PeckUser::factory()->create([
+        'gaijin_id' => 811003,
+        'username' => 'page_target_3',
+    ]);
+
+    $response = $this->getJson('/api/v1/users?sort_by=gaijin_id&sort_direction=asc&per_page=2&page=2');
+
+    $response->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.gaijin_id', 811003)
+        ->assertJsonMissingPath('links')
+        ->assertJsonMissingPath('meta');
+});
+
+test('api users store requires api key authentication', function () {
     $this->postJson('/api/v1/users', [
         'gaijin_id' => 820001,
         'username' => 'unauthorized_create',
@@ -62,7 +89,7 @@ test('api users store requires sanctum authentication', function () {
     ])->assertUnauthorized();
 });
 
-test('api users store creates a record for authorized users', function () {
+test('api users store creates a record for valid api key users', function () {
     $admin = User::query()->create([
         'name' => 'API Admin',
         'email' => 'api-admin@example.com',
@@ -84,9 +111,13 @@ test('api users store creates a record for authorized users', function () {
         'rank' => 'Executive Officer',
     ]);
 
-    $this->actingAs($admin);
+    $apiKey = ApiKey::query()->create([
+        'owner' => $admin->id,
+        'key' => 'api-key-for-store-request',
+    ]);
 
     $this->postJson('/api/v1/users', [
+        'token' => $apiKey->key,
         'gaijin_id' => 820003,
         'username' => 'created_via_api',
         'discord_id' => 123456789012345678,
@@ -96,8 +127,9 @@ test('api users store creates a record for authorized users', function () {
         'initiator' => $officerUser->gaijin_id,
     ])->assertCreated()
         ->assertJsonPath('data.gaijin_id', 820003)
-        ->assertJsonPath('data.initiator_username', $officerUser->username)
-        ->assertJsonPath('data.initiator_rank', 'Executive Officer');
+        ->assertJsonPath('data.initiator', $officerUser->gaijin_id)
+        ->assertJsonMissingPath('data.initiator_username')
+        ->assertJsonMissingPath('data.initiator_rank');
 
     $createdUser = PeckUser::query()->find(820003);
 
@@ -138,20 +170,27 @@ test('api users update only accepts officer initiators', function () {
         'username' => 'patch_non_officer',
     ]);
 
-    $this->actingAs($admin);
+    $apiKey = ApiKey::query()->create([
+        'owner' => $admin->id,
+        'key' => 'api-key-for-update-request',
+    ]);
 
     $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
+        'token' => $apiKey->key,
         'initiator' => $nonOfficerUser->gaijin_id,
     ])->assertUnprocessable()
         ->assertJsonValidationErrors(['initiator']);
 
     $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
+        'token' => $apiKey->key,
         'username' => 'patched_user',
         'status' => 'member',
         'initiator' => $officerUser->gaijin_id,
     ])->assertOk()
         ->assertJsonPath('data.username', 'patched_user')
-        ->assertJsonPath('data.initiator_rank', 'Recruitment Officer');
+        ->assertJsonPath('data.initiator', $officerUser->gaijin_id)
+        ->assertJsonMissingPath('data.initiator_username')
+        ->assertJsonMissingPath('data.initiator_rank');
 
     $targetUser->refresh();
 

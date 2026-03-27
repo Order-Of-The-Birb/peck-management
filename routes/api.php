@@ -7,7 +7,7 @@ Route::prefix('v1')->group(function (): void {
     Route::get('users', [UserController::class, 'index']);
     Route::get('users/{peckUser:gaijin_id}', [UserController::class, 'show']);
 
-    Route::middleware('auth:sanctum')->group(function (): void {
+    Route::middleware('api.key')->group(function (): void {
         Route::post('users', [UserController::class, 'store']);
         Route::patch('users/{peckUser:gaijin_id}', [UserController::class, 'update']);
     });

@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreApiUserRequest;
 use App\Http\Requests\UpdateApiUserRequest;
-use App\Http\Controllers\Controller;
 use App\Http\Resources\PeckUserResource;
 use App\Models\PeckUser;
 use Illuminate\Http\Request;
@@ -29,12 +29,14 @@ class UserController extends Controller
             ])],
             'sort_direction' => ['nullable', 'string', Rule::in(['asc', 'desc'])],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
+            'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
         $searchTerm = $validated['search'] ?? null;
         $sortBy = $validated['sort_by'] ?? 'gaijin_id';
         $sortDirection = $validated['sort_direction'] ?? 'asc';
         $perPage = $validated['per_page'] ?? 15;
+        $page = $validated['page'] ?? 1;
 
         $users = PeckUser::query()
             ->with(['initiatorUser', 'initiatorOfficer'])
@@ -56,8 +58,8 @@ class UserController extends Controller
             })
             ->orderBy($sortBy, $sortDirection)
             ->orderBy('gaijin_id')
-            ->paginate($perPage)
-            ->withQueryString();
+            ->forPage($page, $perPage)
+            ->get();
 
         return PeckUserResource::collection($users);
     }

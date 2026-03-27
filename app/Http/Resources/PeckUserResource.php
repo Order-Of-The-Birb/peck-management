@@ -26,8 +26,6 @@ class PeckUserResource extends JsonResource
             'status' => $peckUser->status,
             'joindate' => $peckUser->joindate?->format('Y-m-d'),
             'initiator' => $peckUser->initiator,
-            'initiator_username' => $peckUser->initiatorUser?->username,
-            'initiator_rank' => $peckUser->initiatorOfficer?->rank,
         ];
     }
 }
