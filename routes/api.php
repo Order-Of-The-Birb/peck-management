@@ -12,3 +12,4 @@ Route::prefix('v1')->group(function (): void {
         Route::patch('users/{peckUser:gaijin_id}', [UserController::class, 'update']);
     });
 });
+?>
