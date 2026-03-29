@@ -2,9 +2,14 @@
 
 use Livewire\Component;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Computed;
 
 new #[Title('Appearance settings')] class extends Component {
-    //
+    #[Computed]
+    public function adminAccess(): bool
+    {
+        return (int) Auth::user()->level === 2;
+    }
 }; ?>
 
 <section class="w-full">
@@ -12,7 +17,7 @@ new #[Title('Appearance settings')] class extends Component {
 
     <flux:heading class="sr-only">{{ __('Appearance settings') }}</flux:heading>
 
-    <x-pages::settings.layout :heading="__('Appearance')" :subheading="__('Update the appearance settings for your account')">
+    <x-pages::settings.layout :heading="__('Appearance')" :subheading="__('Update the appearance settings for your account')" :admin-access="$this->adminAccess">
         <flux:radio.group x-data variant="segmented" x-model="$flux.appearance">
             <flux:radio value="light" icon="sun">{{ __('Light') }}</flux:radio>
             <flux:radio value="dark" icon="moon">{{ __('Dark') }}</flux:radio>

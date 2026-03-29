@@ -11,8 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->string('api_token', 64)->nullable()->unique()->after('remember_token');
+        Schema::create('personal_access_tokens', function (Blueprint $table) {
+            $table->integer('user_id')->primary();
+            $table->string('token', 64)->unique();
+            $table->timestamps();
         });
     }
 
@@ -21,9 +23,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table): void {
-            $table->dropUnique(['api_token']);
-            $table->dropColumn('api_token');
-        });
+        Schema::dropIfExists('personal_access_tokens');
     }
 };

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
-class RefreshPeckUsersFromThunderInsights
+class RefreshPeckDB
 {
     /**
      * @return array{members_received:int,users_created:int,users_updated:int,initiators_updated:int,marked_ex_members:int,reactivated_members:int,leave_records_removed:int}
@@ -48,17 +48,20 @@ class RefreshPeckUsersFromThunderInsights
                 $members,
             )));
 
+            $existingUsers = PeckUser::query()->whereIn('gaijin_id', $memberIds)->get()->keyBy('gaijin_id');
+
             foreach ($members as $member) {
-                $peckUser = PeckUser::query()->find($member['gaijin_id']);
+                $peckUser = $existingUsers->get($member['gaijin_id']);
 
                 if ($peckUser === null) {
-                    PeckUser::query()->create([
+                    $newUser = PeckUser::query()->create([
                         'gaijin_id' => $member['gaijin_id'],
                         'username' => $member['username'],
                         'status' => 'unverified',
                         'joindate' => $member['joindate'],
                         'initiator' => null,
                     ]);
+                    $existingUsers->put($member['gaijin_id'], $newUser);
 
                     $stats['users_created']++;
 
@@ -95,22 +98,21 @@ class RefreshPeckUsersFromThunderInsights
                 }
             }
 
+            $initiatorIds = array_filter(array_column($members, 'initiator'));
+            $existingInitiators = PeckUser::query()->whereIn('gaijin_id', $initiatorIds)->pluck('gaijin_id')->flip();
+
             foreach ($members as $member) {
                 if ($member['initiator'] === null) {
                     continue;
                 }
 
-                $peckUser = PeckUser::query()->find($member['gaijin_id']);
+                $peckUser = $existingUsers->get($member['gaijin_id']);
 
                 if ($peckUser === null || $peckUser->status === 'ex_member') {
                     continue;
                 }
 
-                $initiatorExists = PeckUser::query()
-                    ->whereKey($member['initiator'])
-                    ->exists();
-
-                if (! $initiatorExists || $peckUser->initiator === $member['initiator']) {
+                if (! $existingInitiators->has($member['initiator']) || $peckUser->initiator === $member['initiator']) {
                     continue;
                 }
 

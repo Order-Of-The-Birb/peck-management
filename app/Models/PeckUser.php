@@ -16,8 +16,8 @@ class PeckUser extends Model
     public const STATUSES = [
         'applicant',
         'unverified',
-        'member',
         'ex_member',
+        'member',
         'alt',
     ];
 
@@ -70,6 +70,16 @@ class PeckUser extends Model
     public function initiatorUser(): BelongsTo
     {
         return $this->belongsTo(self::class, 'initiator', 'gaijin_id');
+    }
+
+    public function initiatorOfficer(): BelongsTo
+    {
+        return $this->belongsTo(Officer::class, 'initiator', 'gaijin_id');
+    }
+
+    public function officer(): HasOne
+    {
+        return $this->hasOne(Officer::class, 'gaijin_id', 'gaijin_id');
     }
 
     public function leaveInfo(): HasOne
