@@ -5,8 +5,16 @@ namespace Database\Factories;
 use App\Models\PeckUser;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
+/**
+ * @extends Factory<PeckUser>
+ */
 class PeckUserFactory extends Factory
 {
+    /**
+     * Define the model's default state.
+     *
+     * @return array<string, mixed>
+     */
     public function definition(): array
     {
         $gaijinId = fake()->unique()->numberBetween(100000, 999999999);

@@ -2,9 +2,7 @@
 
 namespace App\Livewire;
 
-use App\Models\Officer;
 use App\Models\PeckUser;
-use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\Rule;
@@ -17,6 +15,10 @@ class PeckUsersDashboard extends Component
 
     public string $search = '';
 
+    public bool $membersWithoutDiscordOnly = false;
+
+    public bool $unverifiedOnly = false;
+
     public string $sortBy = 'gaijin_id';
 
     public string $sortDirection = 'asc';
@@ -26,28 +28,6 @@ class PeckUsersDashboard extends Component
     public bool $showCreateUserModal = false;
 
     public ?int $selectedGaijinId = null;
-
-    public bool $showFilterModal = false;
-
-    /**
-     * @var array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
-     */
-    public array $filters = [
-        'status' => null,
-        'tz' => null,
-        'joined_after' => null,
-        'joined_before' => null,
-    ];
-
-    /**
-     * @var array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
-     */
-    public array $filterForm = [
-        'status' => null,
-        'tz' => null,
-        'joined_after' => null,
-        'joined_before' => null,
-    ];
 
     /**
      * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
@@ -80,6 +60,8 @@ class PeckUsersDashboard extends Component
      */
     protected array $queryString = [
         'search' => ['except' => ''],
+        'membersWithoutDiscordOnly' => ['except' => false],
+        'unverifiedOnly' => ['except' => false],
         'sortBy' => ['except' => 'gaijin_id'],
         'sortDirection' => ['except' => 'asc'],
     ];
@@ -89,139 +71,20 @@ class PeckUsersDashboard extends Component
         $this->resetPage();
     }
 
-    /**
-     * @return array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
-     */
-    protected function blankFilterForm(): array
+    public function updatingMembersWithoutDiscordOnly(): void
     {
-        return [
-            'status' => null,
-            'tz' => null,
-            'joined_before' => null,
-            'joined_after' => null,
-        ];
-    }
-
-    public function openFilterModal(): void
-    {
-        $this->filterForm = $this->filters;
-        $this->showFilterModal = true;
-        $this->resetValidation();
-    }
-
-    public function closeFilterModal(): void
-    {
-        $this->filterForm = $this->filters;
-        $this->showFilterModal = false;
-        $this->resetValidation();
-    }
-
-    public function applyFilters(): void
-    {
-        $validated = $this->validate($this->filterRules());
-        $validatedFilters = $validated['filterForm'];
-        $validatedFilters['tz'] = $this->nullableInteger($validatedFilters['tz']);
-
-        $this->filters = $validatedFilters;
-        $this->showFilterModal = false;
         $this->resetPage();
     }
 
-    public function resetFilters(): void
+    public function updatingUnverifiedOnly(): void
     {
-        $blankFilters = $this->blankFilterForm();
-
-        $this->filters = $blankFilters;
-        $this->filterForm = $blankFilters;
-        $this->showFilterModal = false;
-        $this->resetValidation();
         $this->resetPage();
     }
 
-    public function activeFilterCount(): int
+    public function toggleMembersWithoutDiscordOnly(): void
     {
-        return collect($this->filters)
-            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
-            ->count();
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function filterableStatuses(): array
-    {
-        return PeckUser::STATUSES;
-    }
-
-    /**
-     * @return array<string, list<mixed>>
-     */
-    protected function filterRules(): array
-    {
-        return [
-            'filterForm.status' => [
-                'nullable',
-                'string',
-                Rule::in($this->filterableStatuses()),
-            ],
-            'filterForm.tz' => [
-                'nullable',
-                'integer',
-                'between:-11,12',
-            ],
-            'filterForm.joined_after' => [
-                'nullable',
-                'date_format:Y-m-d',
-                'before_or_equal:filterForm.joined_before',
-            ],
-            'filterForm.joined_before' => [
-                'nullable',
-                'date_format:Y-m-d',
-                'after_or_equal:filterForm.joined_after',
-            ],
-        ];
-    }
-
-    public function sort(string $column): void
-    {
-        if (! $this->isSortableColumn($column)) {
-            return;
-        }
-
-        if ($this->sortBy === $column) {
-            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
-        } else {
-            $this->sortBy = $column;
-            $this->sortDirection = 'asc';
-        }
-
+        $this->membersWithoutDiscordOnly = ! $this->membersWithoutDiscordOnly;
         $this->resetPage();
-    }
-
-    public function isSortedBy(string $column): bool
-    {
-        return $this->sortBy === $column;
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function sortableColumns(): array
-    {
-        return [
-            'gaijin_id',
-            'username',
-            'status',
-            'discord_id',
-            'tz',
-            'joindate',
-            'initiator',
-        ];
-    }
-
-    protected function isSortableColumn(string $column): bool
-    {
-        return in_array($column, $this->sortableColumns(), true);
     }
 
     public function openCreateUserModal(): void
@@ -264,9 +127,41 @@ class PeckUsersDashboard extends Component
         $this->resetPage();
     }
 
-    protected function ensureCanEdit(): void
+    public function sort(string $column): void
     {
-        abort_unless($this->canEdit(), 403);
+        if (! $this->isSortableColumn($column)) {
+            return;
+        }
+
+        if ($this->sortBy === $column) {
+            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortBy = $column;
+            $this->sortDirection = 'asc';
+        }
+
+        $this->resetPage();
+    }
+
+    public function isSortedBy(string $column): bool
+    {
+        return $this->sortBy === $column;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function sortableColumns(): array
+    {
+        return [
+            'gaijin_id',
+            'username',
+            'status',
+            'discord_id',
+            'tz',
+            'joindate',
+            'initiator',
+        ];
     }
 
     /**
@@ -339,7 +234,10 @@ class PeckUsersDashboard extends Component
             return;
         }
 
+        $updatedGaijinId = (int) $validated['form']['gaijin_id'];
+
         $peckUser->fill([
+            'gaijin_id' => $updatedGaijinId,
             'username' => $validated['form']['username'],
             'discord_id' => $this->nullableInteger($validated['form']['discord_id']),
             'tz' => $this->nullableInteger($validated['form']['tz']),
@@ -351,22 +249,6 @@ class PeckUsersDashboard extends Component
 
         $this->selectUser($updatedGaijinId);
         $this->dispatch('peck-user-saved');
-    }
-
-    /**
-     * @return array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
-     */
-    protected function blankUserForm(): array
-    {
-        return [
-            'gaijin_id' => null,
-            'username' => '',
-            'discord_id' => null,
-            'tz' => '0',
-            'status' => 'unverified',
-            'joindate' => null,
-            'initiator' => null,
-        ];
     }
 
     /**
@@ -408,8 +290,8 @@ class PeckUsersDashboard extends Component
             'form.initiator' => [
                 'nullable',
                 'integer',
-                Rule::exists('officers', 'gaijin_id'),
-                function (string $attribute, mixed $value, Closure $fail): void {
+                Rule::exists('peck_users', 'gaijin_id'),
+                function (string $attribute, mixed $value, \Closure $fail): void {
                     $gaijinId = $this->nullableInteger($this->form['gaijin_id'] ?? null);
 
                     if ($value !== null && $gaijinId !== null && (int) $value === $gaijinId) {
@@ -457,8 +339,8 @@ class PeckUsersDashboard extends Component
             'newUserForm.initiator' => [
                 'nullable',
                 'integer',
-                Rule::exists('officers', 'gaijin_id'),
-                function (string $attribute, mixed $value, Closure $fail): void {
+                Rule::exists('peck_users', 'gaijin_id'),
+                function (string $attribute, mixed $value, \Closure $fail): void {
                     $gaijinId = $this->nullableInteger($this->newUserForm['gaijin_id'] ?? null);
 
                     if ($value !== null && $gaijinId !== null && (int) $value === $gaijinId) {
@@ -469,54 +351,20 @@ class PeckUsersDashboard extends Component
         ];
     }
 
-    public function render(): View
+    /**
+     * @return array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
+     */
+    protected function blankUserForm(): array
     {
-        $sortBy = $this->isSortableColumn($this->sortBy) ? $this->sortBy : 'gaijin_id';
-        $sortDirection = $this->sortDirection === 'desc' ? 'desc' : 'asc';
-
-        $initiatorOptions = Officer::query()
-            ->select('officers.gaijin_id', 'officers.rank')
-            ->join('peck_users', 'peck_users.gaijin_id', '=', 'officers.gaijin_id')
-            ->with('peckUser')
-            ->orderBy('peck_users.username')
-            ->orderBy('officers.gaijin_id')
-            ->get();
-
-        $shownUsers = PeckUser::query()
-            ->with('initiatorUser')
-            ->when($this->search !== '', function (Builder $query): void {
-                $searchTerm = '%'.$this->search.'%';
-
-                $query->where(function (Builder $innerQuery) use ($searchTerm): void {
-                    $innerQuery
-                        ->where('gaijin_id', 'like', $searchTerm)
-                        ->orWhere('username', 'like', $searchTerm)
-                        ->orWhere('discord_id', 'like', $searchTerm);
-                });
-            })
-            ->when($this->filters['status'] !== null, function (Builder $query): void {
-                $query->where('status', $this->filters['status']);
-            })
-            ->when($this->filters['tz'] !== null, function (Builder $query): void {
-                $query->where('tz', $this->filters['tz']);
-            })
-            ->when($this->filters['joined_after'] !== null, function (Builder $query): void {
-                $query->whereDate('joindate', '>=', $this->filters['joined_after']);
-            })
-            ->when($this->filters['joined_before'] !== null, function (Builder $query): void {
-                $query->whereDate('joindate', '<=', $this->filters['joined_before']);
-            })
-            ->orderBy($sortBy, $sortDirection)
-            ->orderBy('gaijin_id')
-            ->paginate(15);
-
-        return view('livewire.peck-users-dashboard', [
-            'shownUsers' => $shownUsers,
-            'editableStatuses' => $this->editableStatuses(),
-            'filterableStatuses' => $this->filterableStatuses(),
-            'activeFilterCount' => $this->activeFilterCount(),
-            'initiatorOptions' => $initiatorOptions,
-        ]);
+        return [
+            'gaijin_id' => null,
+            'username' => '',
+            'discord_id' => null,
+            'tz' => '0',
+            'status' => 'unverified',
+            'joindate' => null,
+            'initiator' => null,
+        ];
     }
 
     protected function nullableString(mixed $value): ?string
@@ -535,5 +383,66 @@ class PeckUsersDashboard extends Component
         }
 
         return (int) $value;
+    }
+
+    protected function isSortableColumn(string $column): bool
+    {
+        return in_array($column, $this->sortableColumns(), true);
+    }
+
+    protected function applyMembersWithoutDiscordConstraint(Builder $query): void
+    {
+        $query
+            ->where('status', 'member')
+            ->where(function (Builder $innerQuery): void {
+                $innerQuery
+                    ->whereNull('discord_id')
+                    ->orWhere('discord_id', 0);
+            });
+    }
+
+    protected function ensureCanEdit(): void
+    {
+        abort_unless($this->canEdit(), 403);
+    }
+
+    public function render(): View
+    {
+        $sortBy = $this->isSortableColumn($this->sortBy) ? $this->sortBy : 'gaijin_id';
+        $sortDirection = $this->sortDirection === 'desc' ? 'desc' : 'asc';
+
+        $initiatorOptions = PeckUser::query()
+            ->orderBy('username')
+            ->orderBy('gaijin_id')
+            ->get(['gaijin_id', 'username']);
+
+        $peckUsers = PeckUser::query()
+            ->with('initiatorUser')
+            ->when($this->membersWithoutDiscordOnly, function (Builder $query): void {
+                $this->applyMembersWithoutDiscordConstraint($query);
+            })
+            ->when($this->unverifiedOnly, function (Builder $query): void {
+                $query->where('status', 'unverified');
+            })
+            ->when($this->search !== '', function (Builder $query): void {
+                $searchTerm = '%'.$this->search.'%';
+
+                $query->where(function (Builder $innerQuery) use ($searchTerm): void {
+                    $innerQuery
+                        ->where('gaijin_id', 'like', $searchTerm)
+                        ->orWhere('username', 'like', $searchTerm)
+                        ->orWhere('discord_id', 'like', $searchTerm)
+                        ->orWhere('status', 'like', $searchTerm);
+                });
+            })
+            ->orderBy($sortBy, $sortDirection)
+            ->orderBy('gaijin_id')
+            ->paginate(15);
+
+        return view('livewire.peck-users-dashboard', [
+            'peckUsers' => $peckUsers,
+            'editableStatuses' => $this->editableStatuses(),
+            'initiatorOptions' => $initiatorOptions,
+        ]);
     }
 }
