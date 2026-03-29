@@ -8,50 +8,7 @@
             <flux:sidebar.header>
                 <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
                 <flux:sidebar.collapse class="lg:hidden" />
-            </flux:sidebar.header>
-
-            <flux:sidebar.nav>
-                <flux:sidebar.group :heading="__('Platform')" class="grid">
-                    <flux:sidebar.item
-                        icon="home"
-                        :href="route('dashboard')"
-                        :current="request()->routeIs('dashboard')
-                            && ! request()->routeIs('dashboard.members-missing-discord')
-                            && ! request()->routeIs('dashboard.unverified-users')
-                            && ! request()->routeIs('dashboard.alt-accounts')"
-                        wire:navigate
-                    >
-                        {{ __('All users') }}
-                    </flux:sidebar.item>
-
-                    <flux:sidebar.item
-                        icon="user-group"
-                        :href="route('dashboard.members-missing-discord')"
-                        :current="request()->routeIs('dashboard.members-missing-discord')"
-                        wire:navigate
-                    >
-                        {{ __('Missing Discord IDs') }}
-                    </flux:sidebar.item>
-
-                    <flux:sidebar.item
-                        icon="user"
-                        :href="route('dashboard.unverified-users')"
-                        :current="request()->routeIs('dashboard.unverified-users')"
-                        wire:navigate
-                    >
-                        {{ __('Unverified Users') }}
-                    </flux:sidebar.item>
-
-                    <flux:sidebar.item
-                        icon="users"
-                        :href="route('dashboard.alt-accounts')"
-                        :current="request()->routeIs('dashboard.alt-accounts')"
-                        wire:navigate
-                    >
-                        {{ __('Alt Accounts') }}
-                    </flux:sidebar.item>
-                </flux:sidebar.group>
-            </flux:sidebar.nav>
+            </flux:sidebar.header>            
 
             <flux:spacer />
 
