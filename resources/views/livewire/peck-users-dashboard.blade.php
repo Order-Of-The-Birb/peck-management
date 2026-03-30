@@ -282,20 +282,22 @@
                             </flux:select>
                         </div>
 
-                        <div class="flex flex-wrap items-center justify-end gap-3">
-                            <flux:modal.close>
-                                <flux:button type="button" variant="ghost" wire:click="clearSelection">
-                                    {{ __('Cancel') }}
-                                </flux:button>
-                            </flux:modal.close>
-
-                            <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="save">
-                                {{ __('Save Changes') }}
-                            </flux:button>
-
-                            <x-action-message on="peck-user-saved">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <x-action-message on="peck-user-saved" class="text-sm text-green-600 dark:text-green-400">
                                 {{ __('Saved.') }}
                             </x-action-message>
+
+                            <div class="ml-auto flex flex-wrap items-center gap-3">
+                                <flux:modal.close>
+                                    <flux:button type="button" variant="ghost" wire:click="clearSelection">
+                                        {{ __('Cancel') }}
+                                    </flux:button>
+                                </flux:modal.close>
+
+                                <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="save">
+                                    {{ __('Save Changes') }}
+                                </flux:button>
+                            </div>
                         </div>
                     </form>
                 @endif

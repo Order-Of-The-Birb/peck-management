@@ -127,3 +127,40 @@ test('create user only accepts initiators from the officers table', function () 
 
     expect(PeckUser::query()->find(900003)?->initiator)->toBe($officerUser->gaijin_id);
 });
+
+test('authorized users can save edits and change gaijin id', function () {
+    $admin = User::query()->create([
+        'name' => 'Dashboard Editor',
+        'email' => 'dashboard-editor@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $editableUser = PeckUser::factory()->create([
+        'gaijin_id' => 96729719,
+        'username' => 'ntechnical',
+        'status' => 'member',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('selectUser', $editableUser->gaijin_id)
+        ->set('form.gaijin_id', '97729719')
+        ->set('form.username', 'ntechnical_updated')
+        ->set('form.status', 'ex_member')
+        ->set('form.tz', '0')
+        ->set('form.initiator', null)
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertSet('selectedGaijinId', 97729719)
+        ->assertDispatched('peck-user-saved');
+
+    expect(PeckUser::query()->find(96729719))->toBeNull();
+    expect(PeckUser::query()->find(97729719)?->username)->toBe('ntechnical_updated');
+    expect(PeckUser::query()->find(97729719)?->status)->toBe('ex_member');
+});

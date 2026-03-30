@@ -328,6 +328,7 @@ class PeckUsersDashboard extends Component
         }
 
         $validated = $this->validate($this->rules());
+        $updatedGaijinId = (int) $validated['form']['gaijin_id'];
 
         $previousGaijinId = $this->selectedGaijinId;
         $peckUser = PeckUser::query()->find($previousGaijinId);
@@ -340,6 +341,7 @@ class PeckUsersDashboard extends Component
         }
 
         $peckUser->fill([
+            'gaijin_id' => $updatedGaijinId,
             'username' => $validated['form']['username'],
             'discord_id' => $this->nullableInteger($validated['form']['discord_id']),
             'tz' => $this->nullableInteger($validated['form']['tz']),
