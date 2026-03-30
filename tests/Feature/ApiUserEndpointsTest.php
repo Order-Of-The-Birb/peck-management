@@ -2,6 +2,7 @@
 
 use App\Models\ApiKey;
 use App\Models\Officer;
+use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\User;
 
@@ -54,6 +55,29 @@ test('api users show returns a single record', function () {
         ->assertOk()
         ->assertJsonPath('data.gaijin_id', $peckUser->gaijin_id)
         ->assertJsonPath('data.username', 'show_target');
+});
+
+test('api users leave info show returns null or leave type', function () {
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 810050,
+        'username' => 'leave_info_show_target',
+        'status' => 'ex_member',
+    ]);
+
+    $this->getJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info')
+        ->assertOk()
+        ->assertJsonPath('status', 'success')
+        ->assertJsonPath('data', null);
+
+    PeckLeaveInfo::query()->create([
+        'user_id' => $peckUser->gaijin_id,
+        'type' => PeckLeaveInfo::TYPE_LEFT_SERVER,
+    ]);
+
+    $this->getJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info')
+        ->assertOk()
+        ->assertJsonPath('status', 'success')
+        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT_SERVER);
 });
 
 test('api users index supports page query without pagination metadata in response', function () {
@@ -111,13 +135,10 @@ test('api users store creates a record for valid api key users', function () {
         'rank' => 'Executive Officer',
     ]);
 
-    $apiKey = ApiKey::query()->create([
-        'owner' => $admin->id,
-        'key' => 'api-key-for-store-request',
-    ]);
+    $apiToken = ApiKey::issueForOwner($admin->id);
 
     $this->postJson('/api/v1/users', [
-        'token' => $apiKey->key,
+        'token' => $apiToken,
         'gaijin_id' => 820003,
         'username' => 'created_via_api',
         'discord_id' => 123456789012345678,
@@ -135,6 +156,111 @@ test('api users store creates a record for valid api key users', function () {
 
     expect($createdUser)->not->toBeNull();
     expect($createdUser?->initiator)->toBe($officerUser->gaijin_id);
+});
+
+test('api users store rejects alt status', function () {
+    $admin = User::query()->create([
+        'name' => 'API Alt Validation Admin',
+        'email' => 'api-alt-validation-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $this->postJson('/api/v1/users', [
+        'token' => $apiToken,
+        'gaijin_id' => 820099,
+        'username' => 'alt_status_attempt',
+        'status' => 'alt',
+    ])->assertUnprocessable()
+        ->assertJsonValidationErrors(['status']);
+});
+
+test('api users leave info upsert endpoint creates and updates leave info', function () {
+    $admin = User::query()->create([
+        'name' => 'API Leave Info Admin',
+        'email' => 'api-leave-info-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 820110,
+        'username' => 'leave_info_upsert_target',
+        'status' => 'ex_member',
+    ]);
+
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
+        'token' => $apiToken,
+        'type' => PeckLeaveInfo::TYPE_LEFT,
+    ])->assertOk()
+        ->assertJsonPath('status', 'success')
+        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT);
+
+    expect(PeckLeaveInfo::query()->find($peckUser->gaijin_id)?->type)->toBe(PeckLeaveInfo::TYPE_LEFT);
+
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
+        'token' => $apiToken,
+        'type' => PeckLeaveInfo::TYPE_LEFT_SERVER,
+    ])->assertOk()
+        ->assertJsonPath('status', 'success')
+        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT_SERVER);
+
+    expect(PeckLeaveInfo::query()->find($peckUser->gaijin_id)?->type)->toBe(PeckLeaveInfo::TYPE_LEFT_SERVER);
+
+    $this->patchJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
+        'token' => $apiToken,
+        'type' => PeckLeaveInfo::TYPE_LEFT_SQUADRON,
+    ])->assertOk()
+        ->assertJsonPath('status', 'success')
+        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT_SQUADRON);
+
+    expect(PeckLeaveInfo::query()->find($peckUser->gaijin_id)?->type)->toBe(PeckLeaveInfo::TYPE_LEFT_SQUADRON);
+
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
+        'token' => $apiToken,
+        'type' => 'InvalidLeaveType',
+    ])->assertUnprocessable()
+        ->assertJsonValidationErrors(['type']);
+});
+
+test('api users leave info endpoints return 404 when user is missing', function () {
+    $admin = User::query()->create([
+        'name' => 'API Leave Info 404 Admin',
+        'email' => 'api-leave-info-404-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $this->getJson('/api/v1/users/99999111/leave_info')
+        ->assertNotFound();
+
+    $this->postJson('/api/v1/users/99999111/leave_info', [
+        'token' => $apiToken,
+        'type' => PeckLeaveInfo::TYPE_LEFT,
+    ])->assertNotFound();
+
+    $this->patchJson('/api/v1/users/99999111/leave_info', [
+        'token' => $apiToken,
+        'type' => PeckLeaveInfo::TYPE_LEFT_SERVER,
+    ])->assertNotFound();
 });
 
 test('api users update only accepts officer initiators', function () {
@@ -170,19 +296,16 @@ test('api users update only accepts officer initiators', function () {
         'username' => 'patch_non_officer',
     ]);
 
-    $apiKey = ApiKey::query()->create([
-        'owner' => $admin->id,
-        'key' => 'api-key-for-update-request',
-    ]);
+    $apiToken = ApiKey::issueForOwner($admin->id);
 
     $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
-        'token' => $apiKey->key,
+        'token' => $apiToken,
         'initiator' => $nonOfficerUser->gaijin_id,
     ])->assertUnprocessable()
         ->assertJsonValidationErrors(['initiator']);
 
     $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
-        'token' => $apiKey->key,
+        'token' => $apiToken,
         'username' => 'patched_user',
         'status' => 'member',
         'initiator' => $officerUser->gaijin_id,
@@ -196,4 +319,38 @@ test('api users update only accepts officer initiators', function () {
 
     expect($targetUser->username)->toBe('patched_user')
         ->and($targetUser->initiator)->toBe($officerUser->gaijin_id);
+});
+
+test('api users update removes leave info when status changes away from ex_member', function () {
+    $admin = User::query()->create([
+        'name' => 'API Ex Member Cleanup Admin',
+        'email' => 'api-ex-member-cleanup-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $exMemberUser = PeckUser::factory()->create([
+        'gaijin_id' => 830110,
+        'username' => 'api_cleanup_target',
+        'status' => 'ex_member',
+    ]);
+
+    PeckLeaveInfo::query()->create([
+        'user_id' => $exMemberUser->gaijin_id,
+        'type' => PeckLeaveInfo::TYPE_LEFT,
+    ]);
+
+    $this->patchJson('/api/v1/users/'.$exMemberUser->gaijin_id, [
+        'token' => $apiToken,
+        'status' => 'member',
+    ])->assertOk()
+        ->assertJsonPath('data.status', 'member');
+
+    expect(PeckLeaveInfo::query()->find($exMemberUser->gaijin_id))->toBeNull();
 });

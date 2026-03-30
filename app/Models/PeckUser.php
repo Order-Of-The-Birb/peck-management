@@ -18,7 +18,6 @@ class PeckUser extends Model
         'unverified',
         'ex_member',
         'member',
-        'alt',
     ];
 
     protected $table = 'peck_users';

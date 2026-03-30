@@ -130,7 +130,7 @@ class RefreshPeckDB
             }
 
             $leftUsers = PeckUser::query()
-                ->whereIn('status', ['member', 'unverified', 'alt'])
+                ->whereIn('status', ['member', 'unverified'])
                 ->whereNotIn('gaijin_id', $memberIds)
                 ->get();
 

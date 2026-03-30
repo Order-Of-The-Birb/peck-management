@@ -10,6 +10,17 @@
                 <flux:sidebar.collapse class="lg:hidden" />
             </flux:sidebar.header>            
 
+            <flux:sidebar.nav>
+                <flux:sidebar.group :heading="__('Platform')">
+                    <flux:sidebar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                        {{ __('Users') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="book-open-text" :href="route('dashboard.leave-info')" :current="request()->routeIs('dashboard.leave-info')" wire:navigate>
+                        {{ __('Leave info') }}
+                    </flux:sidebar.item>
+                </flux:sidebar.group>
+            </flux:sidebar.nav>
+
             <flux:spacer />
 
             <x-desktop-user-menu class="hidden lg:block" :name="auth()->user()->name" />

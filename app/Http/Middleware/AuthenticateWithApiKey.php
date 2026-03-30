@@ -25,10 +25,7 @@ class AuthenticateWithApiKey
             return $this->unauthorizedResponse();
         }
 
-        $apiKey = ApiKey::query()
-            ->with('ownerUser')
-            ->where('key', $token)
-            ->first();
+        $apiKey = ApiKey::findByPlainToken($token);
 
         if (! $apiKey instanceof ApiKey || ! $apiKey->ownerUser instanceof User) {
             return $this->unauthorizedResponse();

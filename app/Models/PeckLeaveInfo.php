@@ -13,6 +13,12 @@ class PeckLeaveInfo extends Model
 
     public const TYPE_LEFT_SQUADRON = 'LeftSquadron';
 
+    public const TYPES = [
+        self::TYPE_LEFT,
+        self::TYPE_LEFT_SERVER,
+        self::TYPE_LEFT_SQUADRON,
+    ];
+
     protected $table = 'peck_leave_info';
 
     protected $primaryKey = 'user_id';

@@ -13,6 +13,18 @@ class Officer extends Model
     /** @use HasFactory<OfficerFactory> */
     use HasFactory;
 
+    public const RANK_OFFICER = 'officer';
+
+    public const RANK_DEPUTY = 'deputy';
+
+    public const RANK_COMMANDER = 'commander';
+
+    public const RANKS = [
+        self::RANK_OFFICER,
+        self::RANK_DEPUTY,
+        self::RANK_COMMANDER,
+    ];
+
     protected $table = 'officers';
 
     protected $primaryKey = 'gaijin_id';
