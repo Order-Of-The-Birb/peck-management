@@ -18,6 +18,9 @@
                     <flux:sidebar.item icon="book-open-text" :href="route('dashboard.leave-info')" :current="request()->routeIs('dashboard.leave-info')" wire:navigate>
                         {{ __('Leave info') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="users" :href="route('dashboard.alts')" :current="request()->routeIs('dashboard.alts')" wire:navigate>
+                        {{ __('Alts') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 

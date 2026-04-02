@@ -18,4 +18,10 @@ Route::get('/leave-info', function () {
     ]);
 })->middleware('auth')->name('dashboard.leave-info');
 
+Route::get('/alts', function () {
+    return view('dashboard', [
+        'dashboardSection' => 'alts',
+    ]);
+})->middleware('auth')->name('dashboard.alts');
+
 require __DIR__.'/settings.php';

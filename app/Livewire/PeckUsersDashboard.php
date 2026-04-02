@@ -3,14 +3,18 @@
 namespace App\Livewire;
 
 use App\Models\Officer;
+use App\Models\PeckAlt;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Throwable;
 
 class PeckUsersDashboard extends Component
 {
@@ -31,6 +35,27 @@ class PeckUsersDashboard extends Component
     public bool $showFilterModal = false;
 
     public string $section = 'users';
+
+    public string $altSearch = '';
+
+    public bool $showMasterEditModal = false;
+
+    public bool $showAddSlaveModal = false;
+
+    public ?int $editingMasterGaijinId = null;
+
+    public ?string $altFormMasterGaijinId = null;
+
+    /**
+     * @var list<int>
+     */
+    public array $altFormSlaveGaijinIds = [];
+
+    public ?string $newSlaveGaijinId = null;
+
+    public bool $showAltSaveError = false;
+
+    public string $altSaveErrorMessage = '';
 
     public bool $showLeaveInfoModal = false;
 
@@ -112,11 +137,12 @@ class PeckUsersDashboard extends Component
         'search' => ['except' => ''],
         'sortBy' => ['except' => 'gaijin_id'],
         'sortDirection' => ['except' => 'asc'],
+        'altSearch' => ['except' => ''],
     ];
 
     public function mount(string $section = 'users'): void
     {
-        if (in_array($section, ['users', 'leave_info'], true)) {
+        if (in_array($section, ['users', 'leave_info', 'alts'], true)) {
             $this->section = $section;
         }
     }
@@ -124,6 +150,11 @@ class PeckUsersDashboard extends Component
     public function updatingSearch(): void
     {
         $this->resetPage();
+    }
+
+    public function updatingAltSearch(): void
+    {
+        $this->resetPage('alt-masters-page');
     }
 
     /**
@@ -335,6 +366,389 @@ class PeckUsersDashboard extends Component
     public function isLeaveInfoSection(): bool
     {
         return $this->section === 'leave_info';
+    }
+
+    public function isAltsSection(): bool
+    {
+        return $this->section === 'alts';
+    }
+
+    public function availableMasterUsers(): Collection
+    {
+        $selectedMasterGaijinId = $this->nullableInteger($this->altFormMasterGaijinId);
+        $assignedSlaveGaijinIds = PeckAlt::query()
+            ->pluck('alt_id')
+            ->map(fn (mixed $altId): int => (int) $altId)
+            ->values()
+            ->all();
+
+        return PeckUser::query()
+            ->when($assignedSlaveGaijinIds !== [], function (Builder $query) use ($assignedSlaveGaijinIds, $selectedMasterGaijinId): void {
+                $query->where(function (Builder $innerQuery) use ($assignedSlaveGaijinIds, $selectedMasterGaijinId): void {
+                    $innerQuery->whereNotIn('gaijin_id', $assignedSlaveGaijinIds);
+
+                    if ($selectedMasterGaijinId !== null) {
+                        $innerQuery->orWhere('gaijin_id', $selectedMasterGaijinId);
+                    }
+                });
+            })
+            ->orderBy('username')
+            ->orderBy('gaijin_id')
+            ->get(['gaijin_id', 'username']);
+    }
+
+    public function availableSlaveUsers(): Collection
+    {
+        $selectedMasterGaijinId = $this->nullableInteger($this->altFormMasterGaijinId);
+        $currentSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
+            ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
+            ->values()
+            ->all();
+
+        $assignedSlaveQuery = PeckAlt::query()->select('alt_id');
+        $existingMasterQuery = PeckAlt::query()->select('owner_id')->distinct();
+
+        if ($this->editingMasterGaijinId !== null) {
+            $assignedSlaveQuery->where('owner_id', '!=', $this->editingMasterGaijinId);
+            $existingMasterQuery->where('owner_id', '!=', $this->editingMasterGaijinId);
+        }
+
+        $assignedSlaveGaijinIds = $assignedSlaveQuery
+            ->pluck('alt_id')
+            ->map(fn (mixed $altId): int => (int) $altId)
+            ->values()
+            ->all();
+
+        $existingMasterGaijinIds = $existingMasterQuery
+            ->pluck('owner_id')
+            ->map(fn (mixed $ownerId): int => (int) $ownerId)
+            ->values()
+            ->all();
+
+        $excludedGaijinIds = collect([
+            $selectedMasterGaijinId,
+            ...$currentSlaveGaijinIds,
+            ...$assignedSlaveGaijinIds,
+            ...$existingMasterGaijinIds,
+        ])
+            ->filter(fn (mixed $gaijinId): bool => $gaijinId !== null)
+            ->map(fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->unique()
+            ->values()
+            ->all();
+
+        return PeckUser::query()
+            ->when($excludedGaijinIds !== [], function (Builder $query) use ($excludedGaijinIds): void {
+                $query->whereNotIn('gaijin_id', $excludedGaijinIds);
+            })
+            ->orderBy('username')
+            ->orderBy('gaijin_id')
+            ->get(['gaijin_id', 'username']);
+    }
+
+    public function openCreateMasterModal(): void
+    {
+        $this->ensureCanEdit();
+
+        $this->editingMasterGaijinId = null;
+        $this->altFormMasterGaijinId = null;
+        $this->altFormSlaveGaijinIds = [];
+        $this->newSlaveGaijinId = null;
+        $this->showAddSlaveModal = false;
+        $this->showMasterEditModal = true;
+        $this->dismissAltSaveError();
+        $this->resetValidation();
+    }
+
+    public function openEditMasterModal(int $masterGaijinId): void
+    {
+        $this->ensureCanEdit();
+
+        $this->editingMasterGaijinId = $masterGaijinId;
+        $this->altFormMasterGaijinId = (string) $masterGaijinId;
+        $this->altFormSlaveGaijinIds = PeckAlt::query()
+            ->where('owner_id', $masterGaijinId)
+            ->orderBy('alt_id')
+            ->pluck('alt_id')
+            ->map(fn (mixed $altId): int => (int) $altId)
+            ->values()
+            ->all();
+        $this->newSlaveGaijinId = null;
+        $this->showAddSlaveModal = false;
+        $this->showMasterEditModal = true;
+        $this->dismissAltSaveError();
+        $this->resetValidation();
+    }
+
+    public function closeMasterEditModal(): void
+    {
+        $this->ensureCanEdit();
+
+        $this->showMasterEditModal = false;
+        $this->showAddSlaveModal = false;
+        $this->editingMasterGaijinId = null;
+        $this->altFormMasterGaijinId = null;
+        $this->altFormSlaveGaijinIds = [];
+        $this->newSlaveGaijinId = null;
+        $this->dismissAltSaveError();
+        $this->resetValidation();
+    }
+
+    public function updatedAltFormMasterGaijinId(?string $altFormMasterGaijinId): void
+    {
+        $selectedMasterGaijinId = $this->nullableInteger($altFormMasterGaijinId);
+
+        if ($selectedMasterGaijinId === null) {
+            $this->editingMasterGaijinId = null;
+            $this->altFormSlaveGaijinIds = [];
+
+            return;
+        }
+
+        $existingSlaveGaijinIds = PeckAlt::query()
+            ->where('owner_id', $selectedMasterGaijinId)
+            ->orderBy('alt_id')
+            ->pluck('alt_id')
+            ->map(fn (mixed $altId): int => (int) $altId)
+            ->values()
+            ->all();
+
+        if ($existingSlaveGaijinIds !== []) {
+            $this->editingMasterGaijinId = $selectedMasterGaijinId;
+            $this->altFormSlaveGaijinIds = $existingSlaveGaijinIds;
+
+            return;
+        }
+
+        $this->editingMasterGaijinId = null;
+        $this->altFormSlaveGaijinIds = [];
+    }
+
+    public function openAddSlaveModal(): void
+    {
+        $this->ensureCanEdit();
+
+        if (! filled($this->altFormMasterGaijinId)) {
+            $this->addError('altFormMasterGaijinId', __('Select a master account first.'));
+
+            return;
+        }
+
+        $this->newSlaveGaijinId = null;
+        $this->showAddSlaveModal = true;
+        $this->resetValidation(['newSlaveGaijinId']);
+    }
+
+    public function closeAddSlaveModal(): void
+    {
+        $this->ensureCanEdit();
+
+        $this->newSlaveGaijinId = null;
+        $this->showAddSlaveModal = false;
+        $this->resetValidation(['newSlaveGaijinId']);
+    }
+
+    public function addSlaveToMaster(): void
+    {
+        $this->ensureCanEdit();
+
+        $validated = $this->validate([
+            'newSlaveGaijinId' => [
+                'required',
+                'integer',
+                Rule::exists('peck_users', 'gaijin_id'),
+            ],
+        ]);
+
+        $newSlaveGaijinId = (int) $validated['newSlaveGaijinId'];
+
+        if (! $this->availableSlaveUsers()->contains('gaijin_id', $newSlaveGaijinId)) {
+            $this->addError('newSlaveGaijinId', __('The selected slave account is not available.'));
+
+            return;
+        }
+
+        if (in_array($newSlaveGaijinId, $this->altFormSlaveGaijinIds, true)) {
+            $this->closeAddSlaveModal();
+
+            return;
+        }
+
+        $this->altFormSlaveGaijinIds[] = $newSlaveGaijinId;
+        $this->altFormSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
+            ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
+            ->unique()
+            ->values()
+            ->all();
+
+        $this->closeAddSlaveModal();
+    }
+
+    public function removeSlaveFromMaster(int $slaveGaijinId): void
+    {
+        $this->ensureCanEdit();
+
+        $this->altFormSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
+            ->map(fn (mixed $candidateGaijinId): int => (int) $candidateGaijinId)
+            ->reject(fn (int $candidateGaijinId): bool => $candidateGaijinId === $slaveGaijinId)
+            ->values()
+            ->all();
+    }
+
+    public function setMasterFromSlave(int $slaveGaijinId): void
+    {
+        $this->ensureCanEdit();
+
+        if (! in_array($slaveGaijinId, $this->altFormSlaveGaijinIds, true)) {
+            return;
+        }
+
+        $currentMasterGaijinId = $this->nullableInteger($this->altFormMasterGaijinId);
+
+        if ($currentMasterGaijinId === null) {
+            $this->addError('altFormMasterGaijinId', __('Select a master account first.'));
+
+            return;
+        }
+
+        $remainingSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
+            ->map(fn (mixed $candidateGaijinId): int => (int) $candidateGaijinId)
+            ->reject(fn (int $candidateGaijinId): bool => $candidateGaijinId === $slaveGaijinId)
+            ->values()
+            ->all();
+
+        $this->altFormMasterGaijinId = (string) $slaveGaijinId;
+        $this->altFormSlaveGaijinIds = collect([
+            ...$remainingSlaveGaijinIds,
+            $currentMasterGaijinId,
+        ])
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    public function saveMasterAssignment(): void
+    {
+        $this->ensureCanEdit();
+        $this->dismissAltSaveError();
+
+        $validated = $this->validate([
+            'altFormMasterGaijinId' => [
+                'required',
+                'integer',
+                Rule::exists('peck_users', 'gaijin_id'),
+            ],
+            'altFormSlaveGaijinIds' => [
+                'required',
+                'array',
+                'min:1',
+            ],
+            'altFormSlaveGaijinIds.*' => [
+                'required',
+                'integer',
+                Rule::exists('peck_users', 'gaijin_id'),
+                'distinct',
+            ],
+        ]);
+
+        $masterGaijinId = (int) $validated['altFormMasterGaijinId'];
+        $slaveGaijinIds = collect($validated['altFormSlaveGaijinIds'])
+            ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
+            ->unique()
+            ->values()
+            ->all();
+
+        if (in_array($masterGaijinId, $slaveGaijinIds, true)) {
+            $this->addError('altFormSlaveGaijinIds', __('A master account cannot also be a slave account.'));
+            $this->showAltSaveErrorToast(__('A master account cannot also be a slave account.'));
+
+            return;
+        }
+
+        if ($this->editingMasterGaijinId === null && PeckAlt::query()->where('owner_id', $masterGaijinId)->exists()) {
+            $this->addError('altFormMasterGaijinId', __('The selected master account is already declared.'));
+            $this->showAltSaveErrorToast(__('The selected master account is already declared.'));
+
+            return;
+        }
+
+        $conflictingSlaveAssignments = PeckAlt::query()
+            ->whereIn('alt_id', $slaveGaijinIds);
+
+        if ($this->editingMasterGaijinId !== null) {
+            $conflictingSlaveAssignments->where('owner_id', '!=', $this->editingMasterGaijinId);
+        }
+
+        if ($conflictingSlaveAssignments->exists()) {
+            $this->addError('altFormSlaveGaijinIds', __('At least one selected slave account already has a different master.'));
+            $this->showAltSaveErrorToast(__('At least one selected slave account already has a different master.'));
+
+            return;
+        }
+
+        $slaveAccountsThatAreMasters = PeckAlt::query()
+            ->whereIn('owner_id', $slaveGaijinIds);
+
+        if ($this->editingMasterGaijinId !== null) {
+            $slaveAccountsThatAreMasters->where('owner_id', '!=', $this->editingMasterGaijinId);
+        }
+
+        if ($slaveAccountsThatAreMasters->exists()) {
+            $this->addError('altFormSlaveGaijinIds', __('A slave account cannot be declared as a master account.'));
+            $this->showAltSaveErrorToast(__('A slave account cannot be declared as a master account.'));
+
+            return;
+        }
+
+        $masterAssignedAsSlave = PeckAlt::query()
+            ->where('alt_id', $masterGaijinId);
+
+        if ($this->editingMasterGaijinId !== null) {
+            $masterAssignedAsSlave->where('owner_id', '!=', $this->editingMasterGaijinId);
+        }
+
+        if ($masterAssignedAsSlave->exists()) {
+            $this->addError('altFormMasterGaijinId', __('The selected master account is currently assigned as a slave account.'));
+            $this->showAltSaveErrorToast(__('The selected master account is currently assigned as a slave account.'));
+
+            return;
+        }
+
+        try {
+            DB::transaction(function () use ($masterGaijinId, $slaveGaijinIds): void {
+                if ($this->editingMasterGaijinId !== null) {
+                    PeckAlt::query()
+                        ->where('owner_id', $this->editingMasterGaijinId)
+                        ->delete();
+                }
+
+                PeckAlt::query()
+                    ->whereIn('alt_id', $slaveGaijinIds)
+                    ->delete();
+
+                foreach ($slaveGaijinIds as $slaveGaijinId) {
+                    PeckAlt::query()->create([
+                        'alt_id' => $slaveGaijinId,
+                        'owner_id' => $masterGaijinId,
+                    ]);
+                }
+            });
+        } catch (Throwable $throwable) {
+            report($throwable);
+            $this->showAltSaveErrorToast(__('Saving master assignments failed.'));
+
+            return;
+        }
+
+        $this->dispatch('peck-alt-saved');
+        $this->closeMasterEditModal();
+        $this->resetPage('alt-masters-page');
+    }
+
+    public function dismissAltSaveError(): void
+    {
+        $this->showAltSaveError = false;
+        $this->altSaveErrorMessage = '';
     }
 
     public function selectUser(int $gaijinId): void
@@ -646,6 +1060,12 @@ class PeckUsersDashboard extends Component
         ];
     }
 
+    protected function showAltSaveErrorToast(string $message): void
+    {
+        $this->altSaveErrorMessage = $message;
+        $this->showAltSaveError = true;
+    }
+
     public function render(): View
     {
         $sortBy = $this->isSortableColumn($this->sortBy) ? $this->sortBy : 'gaijin_id';
@@ -661,6 +1081,8 @@ class PeckUsersDashboard extends Component
 
         $shownUsers = null;
         $leaveInfoUsers = null;
+        $altMasterCards = null;
+        $editingMasterSlaveUsers = collect();
 
         if ($this->isUsersSection()) {
             $shownUsers = PeckUser::query()
@@ -711,9 +1133,44 @@ class PeckUsersDashboard extends Component
                 ->paginate(15);
         }
 
+        if ($this->isAltsSection()) {
+            $trimmedAltSearch = trim($this->altSearch);
+
+            $altMasterCards = PeckAlt::query()
+                ->selectRaw('peck_alts.owner_id, peck_users.username as owner_username, count(*) as slave_count')
+                ->join('peck_users', 'peck_users.gaijin_id', '=', 'peck_alts.owner_id')
+                ->when($trimmedAltSearch !== '', function (Builder $query) use ($trimmedAltSearch): void {
+                    $query->where('peck_users.username', 'like', '%'.$trimmedAltSearch.'%');
+                })
+                ->groupBy('peck_alts.owner_id', 'peck_users.username')
+                ->orderBy('peck_users.username')
+                ->orderBy('peck_alts.owner_id')
+                ->paginate(12, ['*'], 'alt-masters-page');
+
+            $slaveGaijinIds = collect($this->altFormSlaveGaijinIds)
+                ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
+                ->unique()
+                ->values()
+                ->all();
+
+            if ($slaveGaijinIds !== []) {
+                $slaveUsers = PeckUser::query()
+                    ->whereIn('gaijin_id', $slaveGaijinIds)
+                    ->get(['gaijin_id', 'username'])
+                    ->keyBy('gaijin_id');
+
+                $editingMasterSlaveUsers = collect($slaveGaijinIds)
+                    ->map(fn (int $slaveGaijinId): ?PeckUser => $slaveUsers->get($slaveGaijinId))
+                    ->filter(fn (?PeckUser $peckUser): bool => $peckUser instanceof PeckUser)
+                    ->values();
+            }
+        }
+
         return view('livewire.peck-users-dashboard', [
             'shownUsers' => $shownUsers,
             'leaveInfoUsers' => $leaveInfoUsers,
+            'altMasterCards' => $altMasterCards,
+            'editingMasterSlaveUsers' => $editingMasterSlaveUsers,
             'editableStatuses' => $this->editableStatuses(),
             'filterableStatuses' => $this->filterableStatuses(),
             'activeFilterCount' => $this->activeFilterCount(),

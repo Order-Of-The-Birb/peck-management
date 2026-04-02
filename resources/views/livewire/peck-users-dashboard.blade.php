@@ -208,6 +208,64 @@
             </section>
         @endif
 
+        @if ($this->isAltsSection())
+            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                <div class="flex w-full flex-row items-end gap-5">
+                    <div>
+                        <flux:heading size="xl">{{ __('Alts') }}</flux:heading>
+                        <flux:text>{{ __('Manage master and slave account assignments') }}</flux:text>
+                    </div>
+
+                    <div class="ml-auto flex items-end gap-3">
+                        @if ($this->canEdit())
+                            <flux:button type="button" variant="primary" wire:click="openCreateMasterModal" class="w-auto shrink-0">
+                                {{ __('Add') }}
+                            </flux:button>
+                        @endif
+
+                        <div class="w-xl">
+                            <flux:input
+                                wire:model.live.debounce.300ms="altSearch"
+                                :placeholder="__('Search by master account name')"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    @forelse ($altMasterCards as $altMasterCard)
+                        <article wire:key="alt-master-card-{{ $altMasterCard->owner_id }}" class="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/40">
+                            <div>
+                                <flux:heading size="md">{{ $altMasterCard->owner_username }}</flux:heading>
+                                <flux:text class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                                    {{ __('ID: :id', ['id' => $altMasterCard->owner_id]) }}
+                                </flux:text>
+                                <flux:text class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                                    {{ __('Slave accounts: :count', ['count' => $altMasterCard->slave_count]) }}
+                                </flux:text>
+                            </div>
+
+                            @if ($this->canEdit())
+                                <div class="mt-4">
+                                    <flux:button type="button" variant="ghost" wire:click="openEditMasterModal({{ $altMasterCard->owner_id }})" class="w-full justify-center">
+                                        {{ __('Edit') }}
+                                    </flux:button>
+                                </div>
+                            @endif
+                        </article>
+                    @empty
+                        <div class="col-span-full rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                            {{ __('No master accounts found.') }}
+                        </div>
+                    @endforelse
+                </div>
+
+                <div class="mt-4">
+                    {{ $altMasterCards?->links() }}
+                </div>
+            </section>
+        @endif
+
         @if ($this->isUsersSection())
             <flux:modal wire:model="showFilterModal" class="max-w-2xl">
                 <form wire:submit="applyFilters" class="space-y-6">
@@ -459,6 +517,117 @@
             @endif
         @endif
 
+        @if ($this->canEdit() && $this->isAltsSection())
+            <flux:modal wire:model="showMasterEditModal" class="max-w-3xl">
+                <form wire:submit="saveMasterAssignment" class="space-y-6">
+                    <div>
+                        <flux:heading size="lg">
+                            {{ $editingMasterGaijinId === null ? __('Add Master Account') : __('Edit Master Account') }}
+                        </flux:heading>
+                        <flux:subheading>
+                            {{ __('Assign slave accounts and save the relationship set.') }}
+                        </flux:subheading>
+                    </div>
+
+                    <flux:select wire:model.live="altFormMasterGaijinId" :label="__('Master account')" required>
+                        <option value="">{{ __('Select a master account') }}</option>
+                        @foreach ($this->availableMasterUsers() as $availableMasterUser)
+                            <option value="{{ $availableMasterUser->gaijin_id }}">
+                                {{ $availableMasterUser->username }} ({{ $availableMasterUser->gaijin_id }})
+                            </option>
+                        @endforeach
+                    </flux:select>
+
+                    <div class="space-y-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
+                        <flux:heading size="sm">{{ __('Slave Accounts') }}</flux:heading>
+
+                        <div class="space-y-2">
+                            @forelse ($editingMasterSlaveUsers as $editingMasterSlaveUser)
+                                <div wire:key="editing-master-slave-{{ $editingMasterSlaveUser->gaijin_id }}" class="group flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
+                                    <div class="flex items-center gap-4">
+                                        <button
+                                            type="button"
+                                            wire:click="removeSlaveFromMaster({{ $editingMasterSlaveUser->gaijin_id }})"
+                                            class="rounded-md p-2 text-neutral-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-red-900/20 dark:hover:text-red-300"
+                                            aria-label="{{ __('Remove slave account') }}"
+                                        >
+                                            <flux:icon.trash class="size-4" />
+                                        </button>
+
+                                        <div>
+                                            <flux:text class="font-medium">{{ $editingMasterSlaveUser->username }}</flux:text>
+                                            <flux:text class="text-xs text-neutral-500 dark:text-neutral-400">{{ $editingMasterSlaveUser->gaijin_id }}</flux:text>
+                                        </div>
+                                    </div>
+
+                                    <flux:button
+                                        type="button"
+                                        variant="ghost"
+                                        wire:click="setMasterFromSlave({{ $editingMasterSlaveUser->gaijin_id }})"
+                                        class="text-xs"
+                                    >
+                                        {{ __('Set Master') }}
+                                    </flux:button>
+                                </div>
+                            @empty
+                                <div class="rounded-lg border border-dashed border-neutral-300 px-3 py-4 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                                    {{ __('No slave accounts selected.') }}
+                                </div>
+                            @endforelse
+                        </div>
+
+                        <flux:button type="button" variant="ghost" wire:click="openAddSlaveModal" class="w-full justify-center rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700">
+                            {{ __('+ Add') }}
+                        </flux:button>
+                    </div>
+
+                    <div class="flex items-center justify-end gap-3">
+                        <flux:modal.close>
+                            <flux:button type="button" variant="ghost" wire:click="closeMasterEditModal">
+                                {{ __('Cancel') }}
+                            </flux:button>
+                        </flux:modal.close>
+
+                        <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveMasterAssignment">
+                            {{ __('Save') }}
+                        </flux:button>
+                    </div>
+                </form>
+            </flux:modal>
+
+            <flux:modal wire:model="showAddSlaveModal" class="max-w-xl">
+                <form wire:submit="addSlaveToMaster" class="space-y-6">
+                    <div>
+                        <flux:heading size="lg">{{ __('Add Slave Account') }}</flux:heading>
+                        <flux:subheading>
+                            {{ __('Select a user to assign under the selected master account.') }}
+                        </flux:subheading>
+                    </div>
+
+                    <flux:select wire:model="newSlaveGaijinId" :label="__('Slave account')" required>
+                        <option value="">{{ __('Select a slave account') }}</option>
+                        @foreach ($this->availableSlaveUsers() as $availableSlaveUser)
+                            <option value="{{ $availableSlaveUser->gaijin_id }}">
+                                {{ $availableSlaveUser->username }} ({{ $availableSlaveUser->gaijin_id }})
+                            </option>
+                        @endforeach
+                    </flux:select>
+
+                    <div class="flex items-center justify-end gap-3">
+                        <flux:modal.close>
+                            <flux:button type="button" variant="ghost" wire:click="closeAddSlaveModal">
+                                {{ __('Cancel') }}
+                            </flux:button>
+                        </flux:modal.close>
+
+                        <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="addSlaveToMaster">
+                            {{ __('Add') }}
+                        </flux:button>
+                    </div>
+                </form>
+            </flux:modal>
+        @endif
+
         @if ($this->canEdit())
             <flux:modal wire:model="showLeaveInfoModal" class="max-w-xl">
                 @if ($selectedLeaveInfoGaijinId !== null)
@@ -536,6 +705,17 @@
                     </form>
                 @endif
             </flux:modal>
+        @endif
+
+        @if ($showAltSaveError)
+            <div
+                x-data
+                x-init="setTimeout(() => $wire.dismissAltSaveError(), 3500)"
+                class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800 shadow-lg dark:border-red-800 dark:bg-red-900/40 dark:text-red-100"
+                role="status"
+            >
+                {{ $altSaveErrorMessage }}
+            </div>
         @endif
     </div>
 </div>

@@ -2,6 +2,7 @@
 
 use App\Livewire\PeckUsersDashboard;
 use App\Models\Officer;
+use App\Models\PeckAlt;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\User;
@@ -305,4 +306,187 @@ test('changing status away from ex_member removes leave info entry', function ()
         ->assertHasNoErrors();
 
     expect(PeckLeaveInfo::query()->find($exMemberUser->gaijin_id))->toBeNull();
+});
+
+test('alts section can search by master account name', function () {
+    $firstMaster = PeckUser::factory()->create([
+        'gaijin_id' => 991001,
+        'username' => 'alpha_master',
+    ]);
+
+    $secondMaster = PeckUser::factory()->create([
+        'gaijin_id' => 991002,
+        'username' => 'omega_master',
+    ]);
+
+    $firstSlave = PeckUser::factory()->create([
+        'gaijin_id' => 991003,
+    ]);
+
+    $secondSlave = PeckUser::factory()->create([
+        'gaijin_id' => 991004,
+    ]);
+
+    PeckAlt::query()->create([
+        'owner_id' => $firstMaster->gaijin_id,
+        'alt_id' => $firstSlave->gaijin_id,
+    ]);
+
+    PeckAlt::query()->create([
+        'owner_id' => $secondMaster->gaijin_id,
+        'alt_id' => $secondSlave->gaijin_id,
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
+        ->assertSee($firstMaster->username)
+        ->assertSee($secondMaster->username)
+        ->set('altSearch', 'omega')
+        ->assertSee($secondMaster->username)
+        ->assertDontSee($firstMaster->username);
+});
+
+test('adding a master requires selecting at least one slave account', function () {
+    $admin = User::query()->create([
+        'name' => 'Alts Admin',
+        'email' => 'alts-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $masterCandidate = PeckUser::factory()->create([
+        'gaijin_id' => 992001,
+        'username' => 'new_master_candidate',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
+        ->call('openCreateMasterModal')
+        ->set('altFormMasterGaijinId', (string) $masterCandidate->gaijin_id)
+        ->call('saveMasterAssignment')
+        ->assertHasErrors(['altFormSlaveGaijinIds']);
+
+    expect(
+        PeckAlt::query()
+            ->where('owner_id', $masterCandidate->gaijin_id)
+            ->exists()
+    )->toBeFalse();
+});
+
+test('selecting an existing master preloads its slave accounts in the modal', function () {
+    $admin = User::query()->create([
+        'name' => 'Alts Preload Admin',
+        'email' => 'alts-preload-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $master = PeckUser::factory()->create([
+        'gaijin_id' => 992101,
+        'username' => 'existing_master_for_preload',
+    ]);
+
+    $firstSlave = PeckUser::factory()->create([
+        'gaijin_id' => 992102,
+        'username' => 'preloaded_slave_1',
+    ]);
+
+    $secondSlave = PeckUser::factory()->create([
+        'gaijin_id' => 992103,
+        'username' => 'preloaded_slave_2',
+    ]);
+
+    PeckAlt::query()->create([
+        'owner_id' => $master->gaijin_id,
+        'alt_id' => $firstSlave->gaijin_id,
+    ]);
+
+    PeckAlt::query()->create([
+        'owner_id' => $master->gaijin_id,
+        'alt_id' => $secondSlave->gaijin_id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
+        ->call('openCreateMasterModal')
+        ->set('altFormMasterGaijinId', (string) $master->gaijin_id)
+        ->assertSet('editingMasterGaijinId', $master->gaijin_id)
+        ->assertSet('altFormSlaveGaijinIds', [
+            $firstSlave->gaijin_id,
+            $secondSlave->gaijin_id,
+        ]);
+});
+
+test('set master action reassigns ownership to selected slave and keeps all previous slaves', function () {
+    $admin = User::query()->create([
+        'name' => 'Alts Editor',
+        'email' => 'alts-editor@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $originalMaster = PeckUser::factory()->create([
+        'gaijin_id' => 993001,
+        'username' => 'original_master',
+    ]);
+
+    $firstSlave = PeckUser::factory()->create([
+        'gaijin_id' => 993002,
+        'username' => 'first_slave',
+    ]);
+
+    $secondSlave = PeckUser::factory()->create([
+        'gaijin_id' => 993003,
+        'username' => 'second_slave',
+    ]);
+
+    PeckAlt::query()->create([
+        'owner_id' => $originalMaster->gaijin_id,
+        'alt_id' => $firstSlave->gaijin_id,
+    ]);
+
+    PeckAlt::query()->create([
+        'owner_id' => $originalMaster->gaijin_id,
+        'alt_id' => $secondSlave->gaijin_id,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
+        ->call('openEditMasterModal', $originalMaster->gaijin_id)
+        ->call('setMasterFromSlave', $firstSlave->gaijin_id)
+        ->call('saveMasterAssignment')
+        ->assertHasNoErrors()
+        ->assertDispatched('peck-alt-saved');
+
+    $newMasterSlaveIds = PeckAlt::query()
+        ->where('owner_id', $firstSlave->gaijin_id)
+        ->orderBy('alt_id')
+        ->pluck('alt_id')
+        ->values()
+        ->all();
+
+    expect($newMasterSlaveIds)->toBe([
+        $originalMaster->gaijin_id,
+        $secondSlave->gaijin_id,
+    ]);
+
+    expect(
+        PeckAlt::query()
+            ->where('owner_id', $originalMaster->gaijin_id)
+            ->exists()
+    )->toBeFalse();
 });
