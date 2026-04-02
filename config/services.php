@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'discord_bot' => [
+        'invalidate_cache_url' => env('DISCORD_BOT_INVALIDATE_CACHE_URL', 'http://127.0.0.1:5000/invalidate-cache'),
+        'shared_secret' => env('DISCORD_BOT_SHARED_SECRET'),
+    ],
+
 ];

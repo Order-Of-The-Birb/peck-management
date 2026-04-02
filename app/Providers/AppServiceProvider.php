@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Models\PeckUser;
+use App\Observers\PeckUserObserver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -25,6 +27,8 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        PeckUser::observe(PeckUserObserver::class);
+
         if (config('app.env') !== 'local') {
             URL::forceScheme('https');
         }

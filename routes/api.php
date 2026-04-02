@@ -1,7 +1,10 @@
 <?php
 
+use App\Http\Controllers\Api\InvalidateCacheController;
 use App\Http\Controllers\Api\V1\UserController;
 use Illuminate\Support\Facades\Route;
+
+Route::middleware('api.key')->post('invalidate-cache', InvalidateCacheController::class);
 
 Route::prefix('v1')->group(function (): void {
     Route::get('users', [UserController::class, 'index']);
