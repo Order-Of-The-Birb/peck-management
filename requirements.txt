@@ -1,0 +1,12 @@
+discord>=2.3.2
+Aiohttp
+psutil
+dotenv
+bs4
+python-dateutil
+prompt_toolkit
+pgcli
+playwright
+fastapi
+uvicorn
+requests
