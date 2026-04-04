@@ -43,8 +43,3 @@ def isInTimebracket(bracket:tuple[datetime]|None=None) -> bool:
 	if bracket is None:
 		bracket = get_sqb_timebracket()
 	return bracket[0] <= datetime.now(UTC) < bracket[1]
-def timeTillBracket(startTime:datetime|None=None) -> int:
-	"return the time left until the start of the next sqb timebracket in seconds"
-	if startTime is None:
-		startTime = get_sqb_timebracket(False)[0]
-	return (datetime.now(UTC) - startTime).total_seconds()

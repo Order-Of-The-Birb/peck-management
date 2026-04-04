@@ -1,5 +1,4 @@
 import requests, aiohttp, random, asyncio, discord, logging, tempfile, re, subprocess
-from difflib import get_close_matches
 from typing import TYPE_CHECKING, Protocol
 from os import path
 from json import loads
@@ -72,17 +71,6 @@ async def random_propaganda(bot:'Bot') -> str:
 			for attachment in i.attachments:
 				messages.append(attachment.url)
 	return messages[random.randint(0, len(messages)-1)]
-def convert_str_int(data:str) -> str|int:
-	try:
-		return int(data)
-	except ValueError:
-		return data
-def get_closest_match(word: str, possibilities: list[str], n:int=1, cutoff:float=1) -> str:
-	if closest_matches := get_close_matches(word, possibilities, n, cutoff): return closest_matches[0]
-	for i in range(len(word), 1, -1):
-		for possibility in possibilities:
-			if possibility.lower().startswith(word[:i].lower()):
-				return possibility
 async def updooter(bot:'Bot', message:discord.Message|discord.MessageReference):
 	if isinstance(message, discord.MessageReference):
 		message = await bot.get_channel(message.channel_id).fetch_message(message.message_id)

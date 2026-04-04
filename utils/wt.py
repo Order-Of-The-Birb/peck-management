@@ -22,48 +22,6 @@ logger = logging.getLogger(__name__)
 headers = {
 	"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 OPR/117.0.0.0"
 }
-class Squadron_API:
-	"""Data class for the `thunderinsights` API data"""
-	class Member:
-		def __init__(self, member:dict[str, int|str]):
-			self._id:int = int(member["uid"])
-			self.username:str = member["nick"]
-			self.role:int = member["role"]
-			self.platform:int = member["platform"]
-			self.max_unit_rank:int = member["max_unit_rank"]
-			self.initiator:int|None = int(member.get("initiator", None))
-			self.initiator_nick:str|None = member.get("initiator_nick", None)
-			self.join_timestamp:int = member["date"]
-	class _clanSeasonRatingRewards:
-		def __init__(self, data:dict[str, int|str]):
-			self.data_time:int = data["t"]
-			self.seasonID:int = data["seasonId"]
-			self.seasonStart:int = data["seasonStartTimestamp"]
-			self.seasonEnd:int = data["seasonEndTimestamp"]
-			self.numInYear:int = data["numInYear"]
-			self.regaliaTags:str = data["regaliaTags"]
-	update_timestamp:int
-	_id:int
-	name:str
-	region:str
-	status:str
-	tag:str
-	type:str
-	seasonRatingRewards:'_clanSeasonRatingRewards'|None = None
-	members:list[Member]
-	astat:'SQBData._astat'
-	def __init__(self, data:dict):
-		self.update_timestamp:int = data["timestamp"]
-		clan = data.get("clan")
-		self._id = int(clan["_id"])
-		self.name = clan["name"]
-		self.status = clan["status"]
-		self.tag = clan["tag"]
-		self.type = clan["type"]
-		if clan["clanSeasonRatingRewards"]:
-			self.seasonRatingRewards = self._clanSeasonRatingRewards(clan["clanSeasonRatingRewards"])
-		self.members = sorted([self.Member(i) for i in clan["members"]], key=lambda x: x.join_timestamp)
-		self.astat = SQBData._astat(clan["astat"])
 class SQBData:
 	class _astat:
 		dr_era5:int
@@ -325,17 +283,6 @@ def get_user_ids(*usernames:str) -> dict[str, int]:
 		else:
 			result[username] = None
 	return result
-def get_squadron_data(squadron:str):
-	logger = logging.getLogger(__name__)
-	response = requests.get(f"https://api.thunderinsights.dk/v1/clans/direct/clan/search/?clan={quote(squadron)}")
-	if not response.ok:
-		err = httperror(response)
-		if err[0] == 500:
-			logger.debug(f"The squadron '{squadron}' doesn't seem to exist")
-			return None
-		raise ValueError(f"Failed to look up squadron '{squadron}' (HTTP {err[0]}, \"{err[1]}\")")
-	data:dict[str, int|dict[str, Any]] = response.json()
-	return Squadron_API(data)
 def normalizeUsername(name: str) -> str:
 	if "@" in name:
 		return name.split("@", 1)[0].strip()
