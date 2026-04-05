@@ -1,3 +1,10 @@
+@props([
+    'heading' => '',
+    'subheading' => '',
+    'adminAccess' => false,
+    'contentWidthClass' => 'max-w-lg',
+])
+
 <div class="flex items-start max-md:flex-col">
     <div class="me-10 w-full pb-4 md:w-[220px]">
         <flux:navlist aria-label="{{ __('Settings') }}" :admin-access="$this->adminAccess">
@@ -16,7 +23,7 @@
         <flux:heading>{{ $heading ?? '' }}</flux:heading>
         <flux:subheading>{{ $subheading ?? '' }}</flux:subheading>
 
-        <div class="mt-5 w-full max-w-lg">
+        <div @class(['mt-5 w-full', $contentWidthClass])>
             {{ $slot }}
         </div>
     </div>
