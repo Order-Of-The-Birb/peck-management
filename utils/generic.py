@@ -64,7 +64,7 @@ def httperror(response:requests.Response|aiohttp.ClientResponse) -> tuple[int, s
 	return response.status_code, requests.status_codes._codes[response.status_code][0]
 async def random_propaganda(bot:'Bot') -> str:
 	"""Selects a random propaganda post and returns with it"""
-	propaganda_ch = bot.get_channel(bot.propagandaChID)
+	propaganda_ch = bot.get_channel(bot.channelIDs["propaganda"])
 	messages = []
 	async for i in propaganda_ch.history():
 		if i.attachments:

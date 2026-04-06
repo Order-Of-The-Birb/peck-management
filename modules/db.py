@@ -1,5 +1,5 @@
 from enum import StrEnum
-from os import getenv
+from os import getenv, _exit
 from requests import get, post, patch
 from requests.exceptions import ConnectionError
 from datetime import date, datetime
@@ -150,12 +150,14 @@ class UserRepository(list["UserRepository.User"]):
 			connection_attempts = 2
 			while True:
 				try:
-					r = get(self.__base_url+f"users?page={i}", headers={"accepts": "application/json"})
+					r = get(self.__base_url+f"users?page={i}&per_page=100", headers={"accepts": "application/json"})
 					break
 				except ConnectionError:
-					logger.critical(f"Database API could not be reached. Retrying in {f"{connection_attempts//60} minutes" if connection_attempts > 60 else ""}{connection_attempts%60} seconds")
+					logger.warning(f"Database API could not be reached. Retrying in {f"{connection_attempts//60} minutes" if connection_attempts > 60 else ""}{connection_attempts%60} seconds")
 					sleep(connection_attempts)
-					connection_attempts = min(connection_attempts*2, 10*60)
+					connection_attempts = connection_attempts*2
+					if connection_attempts >= 10*60:
+						raise ConnectionRefusedError("Establishing connection to database timed out.")
 			if r.json()["data"] == []:
 				break
 			if not r.ok:
@@ -165,6 +167,7 @@ class UserRepository(list["UserRepository.User"]):
 			i += 1
 		logger.info("Refreshed user cache")
 	def add_user(self, gaijin_id:int, username:str, status:Status=Status.UNVERIFIED, discord_id:int|None=None, timezone:int|None=None, joindate:date|None=None, initiator:int|None=None):
+		if gaijin_id is None: raise ValueError("Invalid gaijin ID given: Cannot be `null`")
 		if gaijin_id in [i.gaijin_id for i in self]: return
 		r = get(self.__base_url+f"users/{gaijin_id}")
 		if r.status_code == 404:

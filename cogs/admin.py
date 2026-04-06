@@ -1,18 +1,16 @@
-from __future__ import annotations
-import discord, logging, asyncio
+import discord, logging
 from discord.ext import commands
 from datetime import datetime, UTC, timedelta
-from json import load
-from typing import TYPE_CHECKING, Any
-if __name__ == "__main__":
-	from os import path
-	from sys import path as sys_path
-	sys_path.append(path.abspath(path.join(path.dirname(__file__), '..')))
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from utils.bot import Bot
-from utils.bot import debug_only
+# owner_only, officer_only, members_only, debug_only
+#from utils.bot import 
 import utils.generic as genericUtil
+#import utils.time as timeUtil
 import utils.wt as wtUtil
+
+# "utils.generic", "utils.time", "utils.wt"
 __reload_deps__ = ("utils.wt", "utils.generic")
 
 altAdminPerm:bool=True
@@ -23,7 +21,7 @@ class AdminCog(commands.Cog):
 		self.logger = logging.getLogger(__name__)
 		self.logger.setLevel(bot.logLevel)
 		self.exclude_file = "userlist_exclude.txt"
-		self.logger.debug("Admin Commands initialized")
+		self.logger.debug(f"{self.__class__.__name__} initialized")
 	async def interaction_check(self, interaction:discord.Interaction):
 		if isinstance(interaction.channel, discord.DMChannel):
 			self.logger.warning(f"Unauthorized request\n\tCommand:{interaction.command.name}\t\nUser:{interaction.user.name}({interaction.user.id})\n\tReason: Admin command in DMs")
@@ -89,58 +87,6 @@ class AdminCog(commands.Cog):
 
 	@discord.app_commands.command()
 	@discord.app_commands.guild_only()
-	@discord.app_commands.describe(username="Enter War Thunder username, who the message gets sent to",dc_user="Ping a user to send a message to")
-	async def sqbrecruit(self, interaction: discord.Interaction, username:str|None=None, dc_user:discord.Member|None=None):
-		'''Recruits a given person for SQB, Only usable by admins'''
-		await interaction.response.defer(thinking=True)
-		identifier = None
-		if username is not None:	identifier = username
-		elif dc_user is not None:	identifier = dc_user.id
-		else: return await interaction.edit_original_response(content="You must give me any user identifier.")
-		if isinstance(identifier, int):
-			user = self.bot.db.getByDID(identifier)
-			user = user[0] if user else None
-		elif isinstance(identifier, str):
-			user = self.bot.db.getByName(identifier)
-		else:
-			raise ValueError(f"Invalid type given for identifier '{type(identifier)}'")
-		if user is None:
-			self.logger.debug(f"Could not find user '{identifier}' in the database")
-			await interaction.edit_original_response(content=f"Could not find user '{identifier}' in the database")
-			return
-		current_br = wtUtil.sqb_br(True)
-		message = f"Hello {user.username}!\nYou have been drafted for SQB.\nThe current BR is {current_br[0]}\n{await genericUtil.random_propaganda(self.bot)}"
-		dc_user2 = self.bot.get_user(user.discord_id)
-		async def accept(interaction2:discord.Interaction):
-			await interaction2.followup.send(f"Splendid, please join <#{self.bot.sqbChID}> to start participating!")
-			await interaction.edit_original_response(content=f"User '{interaction2.user.name}' has accepted participating.")
-			return True
-		async def deny(interaction2:discord.Interaction):
-			await interaction2.followup.send("Understood.")
-			await interaction.edit_original_response(content=f"User '{interaction2.user.name}' has denied participating this time.")
-			return True
-		try:
-			await dc_user2.send(message, view=genericUtil.genericButtons(acceptFunc=accept, denyFunc=deny, acceptLabel="Accept Invitation", denyLabel="Deny Invitation", removeButtonsAfter=True))
-			await interaction.edit_original_response(content=f"Message sent to {dc_user2.name} (War Thunder username: {user.username})")
-		except discord.Forbidden:
-			await interaction.edit_original_response(content=f"Could not send DM to {dc_user2.name} (War Thunder username: {user.username}).")
-
-	@discord.app_commands.command()
-	@discord.app_commands.guild_only()
-	async def sqb_brackets(self, interaction:discord.Interaction):
-		"""Posts the seasonal schedule for SQB"""
-		await interaction.response.defer(thinking=True)
-		for i in (await interaction.channel.pins()):
-			if i.content.startswith("1st week:") and i.author.id == self.bot.user.id:
-				await i.delete()
-				self.logger.debug("Pinned message found and promptly deleted")
-				break
-		await interaction.edit_original_response(content=wtUtil.sqb_br())
-		await (await interaction.original_response()).pin(reason="Pinning SQB BR message")
-		await interaction.channel.purge(limit=1, reason="Removing pin message")
-
-	@discord.app_commands.command()
-	@discord.app_commands.guild_only()
 	async def get_user(self, interaction:discord.Interaction, username:str):
 		class InvalidUsersLView(discord.ui.LayoutView):
 			def __init__(self, bot:'Bot'):
@@ -184,3 +130,5 @@ class AdminCog(commands.Cog):
 
 async def setup(bot: 'Bot'):
 	await bot.add_cog(AdminCog(bot))
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")

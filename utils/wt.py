@@ -275,9 +275,12 @@ def get_user_ids(*usernames:str) -> dict[str, int]:
 				result[username] = None
 				continue
 			raise ValueError(f"Failed to look up gaijin ID of user '{username}' (HTTP {err[0]}, \"{err[1]}\")")
-		data = response.json()
+		data:list[dict[str, int|str]] = response.json()
+		normalizedUsername = normalizeUsername(username)
 		for user in data:
-			if normalizeUsername(user.get("nick")) == normalizeUsername(username):
+			found_username = user.get("nick")
+			if found_username is None: continue
+			if found_username == username or normalizeUsername(found_username) == normalizedUsername: # Normalizing for database lookups (database doesn't store @psn and @live)
 				result[username] = int(user["userid"])
 				break
 		else:
@@ -287,7 +290,7 @@ def normalizeUsername(name: str) -> str:
 	if "@" in name:
 		return name.split("@", 1)[0].strip()
 	return name.strip()
-async def userInReplay(username:str, replay_id:int|str, login:'Bot.gaijinLogin') -> bool:
+async def userInReplay(username:str, replay_id:int|str, login:'Bot.GaijinLogin') -> bool:
 	username = normalizeUsername(username)
 	if isinstance(replay_id, str):
 		replay_id = int(replay_id, 16 if any(c in "abcdefABCDEF" for c in replay_id) else 10) # convert from HEX to DEC
