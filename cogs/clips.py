@@ -1,10 +1,13 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import discord, logging, asyncio
 from discord.ext import commands
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from utils.bot import Bot
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
-from utils.bot import officer_only
+from utils.bot import officer_only, CategoryIDs
 import utils.generic as genericUtil
 #import utils.time as timeUtil
 #import utils.wt as wtUtil
@@ -69,7 +72,7 @@ class ClipsCog(commands.GroupCog, group_name="clips"):
 					else:
 						await interaction.edit_original_response(content=f"One of the attachments were not an accepted video format. The following formats are accepted: {", ".join(VIDEO_FORMATS)}")
 						return
-				CLIPS_CATEGORY:discord.CategoryChannel|None = next((c for c in self.bot.get_guild(self.bot.peckServer).categories if c.id == self.bot.categoryIDs["clips"]), None)
+				CLIPS_CATEGORY:discord.CategoryChannel|None = next((c for c in self.bot.get_guild(self.bot.peckServer).categories if c.id == self.bot.categoryIDs[CategoryIDs.CLIPS]), None)
 				if CLIPS_CATEGORY is None: raise LookupError("Could not find the Clips category")
 				subjects = CLIPS_CATEGORY.text_channels
 				self._logger.debug(f"Subjects: {subjects}")
@@ -108,7 +111,7 @@ class ClipsCog(commands.GroupCog, group_name="clips"):
 		await interaction.response.send_modal(CreateClipCh(self.bot))
 
 	@discord.app_commands.command(name="add_alias")
-	@officer_only
+	@officer_only()
 	async def add_alias(self, interaction:discord.Interaction):
 		class AddAlias(discord.ui.Modal, title="Add alias to user"):
 			userCh = discord.ui.Label(
@@ -137,7 +140,7 @@ class ClipsCog(commands.GroupCog, group_name="clips"):
 				await interaction.response.defer(ephemeral=True, thinking=True)
 				selected_user:discord.Member = self.userCh.component.values[0]
 				alias:str = self.userAlias.component.value
-				CLIPS_CATEGORY:discord.CategoryChannel|None = next((c for c in self.bot.get_guild(self.bot.peckServer).categories if c.id == self.bot.categoryIDs["clips"]), None)
+				CLIPS_CATEGORY:discord.CategoryChannel|None = next((c for c in self.bot.get_guild(self.bot.peckServer).categories if c.id == self.bot.categoryIDs[CategoryIDs.CLIPS]), None)
 				if CLIPS_CATEGORY is None:
 					raise LookupError("Could not find the Clips category")
 				subjects = CLIPS_CATEGORY.text_channels
@@ -158,12 +161,13 @@ class ClipsCog(commands.GroupCog, group_name="clips"):
 		await interaction.response.send_modal(AddAlias(self.bot))
 	
 	@discord.app_commands.command(name="remove_alias")
+	@discord.app_commands.default_permissions(manage_channels=True)
 	@officer_only()
 	async def remove_alias(self, interaction:discord.Interaction, alias:str, user:discord.User):
 		await interaction.response.defer(thinking=True, ephemeral=True)
 		clipCateg = self.bot.get_guild(self.bot.peckServer).categories
 		for categ in clipCateg:
-			if categ.id != self.bot.categoryIDs["clips"]: continue
+			if categ.id != self.bot.categoryIDs[CategoryIDs.CLIPS]: continue
 			clipCateg = categ
 			break
 		else:
@@ -180,6 +184,7 @@ class ClipsCog(commands.GroupCog, group_name="clips"):
 		for ind, _alias in enumerate(aliases):
 			if _alias.lower() != alias.lower(): continue
 			aliases.pop(ind)
+			userClipCh.topic = "\n".join(aliases)
 			await interaction.edit_original_response(content=f"Alias '{alias}' has been removed from user {user.name}")
 			break
 		else:
@@ -188,5 +193,3 @@ class ClipsCog(commands.GroupCog, group_name="clips"):
 
 async def setup(bot:'Bot'):
 	await bot.add_cog(ClipsCog(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")

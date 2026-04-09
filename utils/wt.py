@@ -1,19 +1,18 @@
 from __future__ import annotations
 import logging, requests, re, threading
 from playwright.async_api import async_playwright, Page as aPage
-from datetime import datetime
 from bs4 import BeautifulSoup
 from urllib.parse import quote
 from json import loads
 from time import sleep
-from datetime import datetime, UTC
-from typing import Any, TYPE_CHECKING
+from datetime import datetime, UTC, date
+from typing import TYPE_CHECKING
 from contextlib import asynccontextmanager
 if __name__ == "__main__":
 	from os import path
 	from sys import path as sys_path
 	sys_path.append(path.abspath(path.join(path.dirname(__file__), '..')))
-from utils.time import discord_timestamp, toUnix, sqb_brackets
+from utils.time import discord_timestamp, sqb_brackets, timestampTypes
 from utils.generic import httperror
 if TYPE_CHECKING:
 	from utils.bot import Bot
@@ -89,6 +88,39 @@ class SQBData:
 		self.tagl = content.get("tagl")
 		self.type = content.get("type")
 		self.astat = self._astat(content.get("astat"))
+	@classmethod
+	def fetch_data(cls) -> SQBData | None:
+		obj = None
+		def checkPage(pagenum:int):
+			while True:
+				response = requests.get(f"https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/{pagenum}/sort/dr_era5")
+				if response.status_code == 429: sleep(1)
+				else: break
+			if not response.ok:
+				logger.error(f"page number {pagenum} returned HTTP error {response.status_code} ({httperror(response)})")
+				return
+			data = loads(response.text)
+			if data["status"] != "ok":
+				logger.error(f"Page status returned {data["status"]}, with message '{data["msg"]}'")
+				return None
+			for squadron in data["data"]:
+				if isinstance(squadron, dict) and squadron.get("_id") == 1061551:
+					nonlocal obj
+					if obj is None:
+						obj = cls(squadron, pagenum)
+						return
+		pagenum = 1
+		while True: # 20 places per page
+			if pagenum > 50:
+				return None # Not found in first 20*50=1000 places
+			threads = [threading.Thread(None, checkPage, args=(i,)) for i in range(pagenum, pagenum+5)] # 5 pages per thread batch, 20*5=100 places per check
+			[i.start() for i in threads]
+			while any(i.is_alive() for i in threads):
+				sleep(0.1)
+			if obj is not None:
+				return obj
+			pagenum += 5
+			sleep(0.5)
 class Squadron:
 	class Member:
 		def __init__(self, data:tuple):
@@ -188,80 +220,51 @@ class Squadron:
 			finally:
 				await context.close()
 				await browser.close()
-def sqb_br(current:bool = False) -> tuple[str,list[str, str]]|str:
-	logger.info("Retrieving SQB BR data")
+def _get_raw_sqb_post():
+	logger.debug("Retrieving SQB BR data")
 	URL = "https://forum.warthunder.com/t/season-schedule-for-squadron-battles/4446"
 	response = requests.get(URL, headers=headers)
 	if response.status_code != 200:
-		err = httperror(response)
-		return logger.error(f"HTTP {err[0]} ({err[1]})")
+		raise LookupError(f"WT Forums gave back an error: {response.status_code} ({httperror(response)})")
 	post = str(BeautifulSoup(response.text, 'html.parser').find("div", class_="post").find_all("p")[1]).removeprefix("<p>").removesuffix("</p>").replace("<br/>","").split("\n")
-	"""[
-	'1st week мах BR 12.7 (01.05 — 07.05)',
-	'2nd week мах BR 11.7 (08.05 — 14.05)',
-	'3rd week мах BR 10.7 (15.05 — 21.05)',
-	'4th week мах BR 9.7 (22.05 — 28.05)',
-	'5th week мах BR 8.7 (29.05 — 04.06)',
-	'6th week мах BR 7.7 (05.06 — 11.06)',
-	'7th week мах BR 6.7 (12.06 — 18.06)',
-	'8th week мах BR 5.7 (19.06 — 25.06)',
-	'Until the end of season, мах BR 4.7 (26.06 — 30.06)'
-	]"""
+	logger.debug("Retrieved data")
+	return post
+def _parse_sqb_weeks() -> list[dict[str, datetime|float]]:
+	post = _get_raw_sqb_post()
 	rn = datetime.now(UTC)
-	rn_unix = toUnix(rn)
 	weeks = []
 	for num, week in enumerate(post):
-		week = week.replace("БР", "BR")
-		timeframe = re.search(r"\((.*?)\)", week).group(1).split(" — ")
-		br = float(re.search(fr"{"мах" if num==len(post) else "BR"} (.*?) ", week).group(1))
-		start_time = toUnix(datetime.strptime(f"{timeframe[0]}.{rn.year}", "%d.%m.%Y").replace(hour=sqb_brackets[0][0], minute=0, second=0))
-		end_time = toUnix(datetime.strptime(f"{timeframe[1]}.{rn.year}", "%d.%m.%Y").replace(hour=sqb_brackets[1][1], minute=0, second=0))
-		if current and start_time <= rn_unix and end_time >= rn_unix:
-			return br, (discord_timestamp(start_time, "R"),discord_timestamp(end_time, "R")) 
+		week_number = "Afterward"
+		main_regex = re.search(r"(([0-9]+) *(st|nd|rd|th|) week|) мах (BR|БР) ([0-9.]+) \(([0-9.]+)\D+([0-9.]+)\)", week, re.IGNORECASE)
 		if num != len(post)-1:
-			try:
-				week_number = re.search(r"([1-8](st|nd|rd|th)) week", week).group(0)
-			except AttributeError:
-				week_number = re.search(r"[1-8] week", week).group(0)
-				append_numbering = {"1":"st","2":"nd","3":"rd"}
-				week_number = week_number.removesuffix(" week") + append_numbering.get(week_number[0], "th") + " week"
-		else:
-			week_number = "Afterward"
-		weeks.append(f"{week_number}: {br}\n\t{discord_timestamp(start_time, "d")} ({discord_timestamp(start_time, "R")}) - {discord_timestamp(end_time, "d")} ({discord_timestamp(end_time, "R")})\n")
-	logger.info("Data obtained")
-	return "\n".join(weeks)
-def get_api_data() -> SQBData|None:
-	obj = None
-	def checkPage(pagenum:int):
-		while True:
-			response = requests.get(f"https://warthunder.com/en/community/getclansleaderboard/dif/_hist/page/{pagenum}/sort/dr_era5")
-			if response.status_code == 429: sleep(1)
-			else: break
-		if not response.ok:
-			err = httperror(response)
-			logger.error(f"page number {pagenum} returned HTTP error '{err[0]}' ({err[1]})")
-		data = loads(response.text)
-		if data["status"] != "ok":
-			logger.error(f"Page status returned {data["status"]}, with message '{data["msg"]}'")
-			return None
-		for squadron in data["data"]:
-			if isinstance(squadron, dict) and squadron.get("_id") == 1061551:
-				nonlocal obj
-				if obj is None:
-					obj = SQBData(squadron, pagenum)
-					return
-	pagenum = 1
-	while True: # 20 places per page
-		if pagenum > 50:
-			return None # Not found in first 20*50=1000 places
-		threads = [threading.Thread(None, checkPage, args=(i,)) for i in range(pagenum, pagenum+5)] # 5 pages per thread batch, 20*5=100 places per check
-		[i.start() for i in threads]
-		while any(i.is_alive() for i in threads):
-			sleep(0.1)
-		if obj is not None:
-			return obj
-		pagenum += 5
-		sleep(0.5)
+			week_number = main_regex.group(1)
+			append_numbering = {"1":"st","2":"nd","3":"rd"}
+			if not any(i in week_number for i in [*append_numbering.values(), "th"]) and main_regex.group(3) is not None:
+				_ = main_regex.group(2)
+				week_number = week_number.replace(_, f"{_}{append_numbering.get(_[-1], "th")}")
+		br = float(main_regex.group(5))
+		start_time = datetime.strptime(f"{main_regex.group(6)}.{rn.year}", "%d.%m.%Y").replace(hour=sqb_brackets[0][0].hour, minute=0, second=0, tzinfo=UTC)
+		end_time = datetime.strptime(f"{main_regex.group(7)}.{rn.year}", "%d.%m.%Y").replace(hour=sqb_brackets[1][1].hour, minute=0, second=0, tzinfo=UTC)
+		weeks.append({
+			"week": week_number,
+			"br": br,
+			"start": start_time,
+			"end": end_time
+		})
+	return weeks
+def get_sqb_season() -> str:
+	weeks = _parse_sqb_weeks()
+	return "\n".join(f"{i["week"]}: {i["br"]}\n\t{discord_timestamp(i["start"], timestampTypes.SHORT_DATE)} ({discord_timestamp(i["start"], timestampTypes.RELATIVE)}) - {discord_timestamp(i["end"], timestampTypes.SHORT_DATE)} ({discord_timestamp(i["end"], timestampTypes.RELATIVE)})" for i in weeks)
+def get_sqb_br(other_date:datetime|None = None) -> tuple[float, tuple[date, date]]|None:
+	"""Gets the BR of a given day of SQB. Will get today if no date is given."""
+	if not other_date: rn = datetime.now(UTC)
+	else: rn = other_date.astimezone(UTC)
+	weeks = _parse_sqb_weeks()
+	for week in weeks:
+		if week["start"] <= rn < week["end"]:
+			return week["br"], (week["start"], week["end"])
+	_ = weeks[-1]
+	return None
 def get_user_ids(*usernames:str) -> dict[str, int]:
 	logger = logging.getLogger(__name__)
 	result:dict[str, int] = {}
@@ -269,12 +272,11 @@ def get_user_ids(*usernames:str) -> dict[str, int]:
 	for username in usernames:
 		response = session.get(f"https://api.thunderinsights.dk/v1/users/direct/search/?nick={username}&limit=10")
 		if not response.ok:
-			err = httperror(response)
-			if err[0] == 500:
+			if response.status_code == 500:
 				logger.debug(f"User '{username}' doesn't seem to exist anymore")
 				result[username] = None
 				continue
-			raise ValueError(f"Failed to look up gaijin ID of user '{username}' (HTTP {err[0]}, \"{err[1]}\")")
+			raise ValueError(f"Failed to look up gaijin ID of user '{username}' (HTTP {response.status_code}, \"{httperror(response)}\")")
 		data:list[dict[str, int|str]] = response.json()
 		normalizedUsername = normalizeUsername(username)
 		for user in data:
@@ -286,10 +288,10 @@ def get_user_ids(*usernames:str) -> dict[str, int]:
 		else:
 			result[username] = None
 	return result
-def normalizeUsername(name: str) -> str:
-	if "@" in name:
-		return name.split("@", 1)[0].strip()
-	return name.strip()
+def normalizeUsername(name: str) -> str|None:
+	match = re.fullmatch(r"([\w-](?:[\w -]{1,14}[\w-])?)(?:@(psn|live))?", name)
+	if not match: return None
+	return match.group(1)
 async def userInReplay(username:str, replay_id:int|str, login:'Bot.GaijinLogin') -> bool:
 	username = normalizeUsername(username)
 	if isinstance(replay_id, str):

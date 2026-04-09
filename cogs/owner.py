@@ -1,3 +1,5 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import logging, discord
 from discord.ext import commands
 from typing import TYPE_CHECKING
@@ -5,6 +7,7 @@ from sys import modules as sysmodules
 if TYPE_CHECKING:
 	from utils.bot import Bot
 from cogs import EXTENSIONS
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
 from utils.bot import owner_only
 #import utils.generic as genericUtil
@@ -66,5 +69,3 @@ class OwnerCog(commands.Cog):
 
 async def setup(bot: 'Bot'):
 	await bot.add_cog(OwnerCog(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")

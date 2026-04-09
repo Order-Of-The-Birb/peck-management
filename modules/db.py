@@ -34,14 +34,14 @@ class UserRepository(list["UserRepository.User"]):
 		def pull(self) -> bool:
 			r = get(self.__base_url+f"users/{self.gaijin_id}")
 			if not r.ok:
-				logger.error(f"Endpoint threw an error: {httperror(r)}")
+				logger.error(f"Endpoint threw an error: {r.status_code} ({httperror(r)})")
 				return False
 			self.__data:dict[str, int|str] = r.json()["data"]
 			return True
 		def push(self) -> bool:
 			r = get(self.__base_url+f"users/{self.gaijin_id}")
 			if not r.ok:
-				logger.error(f"An error occurred when getting the current data of user {self.gaijin_id} ({httperror(r)})")
+				logger.error(f"An error occurred when getting the current data of user {self.gaijin_id} returned {r.status_code} ({httperror(r)})")
 				return False
 			currentData:dict[str, int|str] = r.json()["data"]
 			editedValues:dict[str, str|int] = {}
@@ -52,19 +52,19 @@ class UserRepository(list["UserRepository.User"]):
 			del currentData
 			r = get(self.__base_url+f"users/{self.gaijin_id}/leave_info")
 			if not r.ok:
-				logger.error(f"Leave info returned {httperror(r)}")
+				logger.error(f"Leave info returned {r.status_code} ({httperror(r)})")
 				return False
 			if (None if self.leave_info is None else self.leave_info.value) != r.json()["data"]:
 				if self.leave_info is not None:
 					r = patch(self.__base_url+f"users/{self.gaijin_id}/leave_info", json={"type":self.leave_info.value, "token": self.__token})
 					if not r.ok:
-						logger.error(f"Failed to update the following member's leave info: {self.gaijin_id} ({httperror(r)})")
+						logger.error(f"Failed to update the following member's leave info: {self.gaijin_id} returned {r.status_code} ({httperror(r)})")
 						return False	
 			if editedValues:
 				editedValues["token"] = self.__token
 				r = patch(self.__base_url+f"users/{self.gaijin_id}", json=editedValues)
 				if not r.ok:
-					logger.error(f"Failed to update the following member: {self.gaijin_id} ({httperror(r)})")
+					logger.error(f"Failed to update the following member: {self.gaijin_id} returned {r.status_code} ({httperror(r)})")
 					return False
 			return True
 		#region Gaijin ID
@@ -161,7 +161,7 @@ class UserRepository(list["UserRepository.User"]):
 			if r.json()["data"] == []:
 				break
 			if not r.ok:
-				logger.error(f"Endpoint threw an error: {httperror(r)}")
+				logger.error(f"Endpoint threw an error: {r.status_code} ({httperror(r)})")
 				return
 			self.extend(self.User(self.__base_url, self.__api_token, **item) for item in r.json()["data"])
 			i += 1
@@ -186,9 +186,9 @@ class UserRepository(list["UserRepository.User"]):
 				}
 			)
 			if not r.ok:
-				raise ValueError(f"User '{username}' could not be added to the database ({httperror(r)}): {r.text}")
+				raise ValueError(f"User '{username}' could not be added to the database ({r.status_code}, {httperror(r)}): {r.text}")
 		elif not r.ok:
-			raise LookupError(f"Endpoint threw an error while querying {httperror(r)}")
+			raise LookupError(f"Endpoint threw an error while querying {r.status_code} ({httperror(r)})")
 		self.append(self.User(self.__base_url, self.__api_token, gaijin_id=gaijin_id, username=username, status=status, discord_id=discord_id, tz=timezone, joindate=joindate.strftime("%Y-%m-%d") if joindate is not None else None, initiator=initiator))
 	def getByGID(self, gaijin_id:int) -> User|None:
 		for user in self:

@@ -1,9 +1,11 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import discord, logging
 from discord.ext import commands
-from datetime import datetime, UTC, timedelta
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from utils.bot import Bot
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
 #from utils.bot import 
 import utils.generic as genericUtil
@@ -27,22 +29,15 @@ class AdminCog(commands.Cog):
 			self.logger.warning(f"Unauthorized request\n\tCommand:{interaction.command.name}\t\nUser:{interaction.user.name}({interaction.user.id})\n\tReason: Admin command in DMs")
 			await interaction.response.send_message("You need to execute this command in a server (Required to check for permissions)")
 			return False
-		elif (
-			(interaction.user.guild_permissions.administrator and interaction.guild_id == 917850361019125820) or # PECK admin 
-			interaction.user.id in [
-				332030423913725953, # Maho Yoshino
-				171971803625816075, # Tzatziki
-				311555617032765451, # eevee
-			]
-			or (altAdminPerm and self.bot.debug and interaction.user.id == 709449854371364895) # Roxy (alt)
-		): 
+		if interaction.user.guild_permissions.manage_messages:
 			return True
-		self.logger.warning(f"Unauthorized request\n\tCommand:{interaction.command.name}\t\nUser:{interaction.user.name}({interaction.user.id})\n\tReason: No permission")
-		await interaction.response.send_message("You don't have the required Permissions", ephemeral=True, 	delete_after=5)
+		self.logger.warning(f"User {interaction.user.name} ({interaction.user.id}) tried using an admin command without the needed permissions")
 		return False
 
 	@discord.app_commands.command()
 	@discord.app_commands.guild_only()
+	@discord.app_commands.default_permissions(manage_messages=True)
+	@discord.app_commands.checks.has_permissions(manage_messages=True)
 	@discord.app_commands.describe(count="The amount of messages to purge")
 	async def purge(self, interaction:discord.Interaction, count:int):
 		if count < 1:
@@ -50,9 +45,12 @@ class AdminCog(commands.Cog):
 			return
 		await interaction.response.send_message(f"Purging {count} messages", ephemeral=True)
 		await interaction.channel.purge(limit=count)
+		await interaction.edit_original_response(content="Messages purged.")
 
 	@discord.app_commands.command()
 	@discord.app_commands.guild_only()
+	@discord.app_commands.default_permissions(administrator=True)
+	@discord.app_commands.checks.has_permissions(administrator=True)
 	@discord.app_commands.describe(userid="The user's id to send the DM to", content="What will be sent")
 	async def senddm(self, interaction: discord.Interaction, userid:str, content:str):
 		"""Sends a DM to a specified user, used with an ID, Only usable by the bot owner"""
@@ -63,52 +61,18 @@ class AdminCog(commands.Cog):
 
 	@discord.app_commands.command()
 	@discord.app_commands.guild_only()
-	async def say(self, interaction:discord.Interaction, content:str):
+	@discord.app_commands.default_permissions(administrator=True)
+	@discord.app_commands.checks.has_permissions(administrator=True)
+	async def say(self, interaction:discord.Interaction, content:str, file:discord.Attachment):
 		"""Says the content as the bot, Only usable as the owner of the bot"""
 		await interaction.response.defer(ephemeral=True)
-		await interaction.channel.send(content.replace("\\n", "\n"))
+		await interaction.channel.send(content.replace("\\n", "\n"), file=await file.to_file())
 		await interaction.delete_original_response()
-
-	@discord.app_commands.command()
-	@discord.app_commands.guild_only()
-	async def top_members(self, interaction: discord.Interaction, number:int=8):
-		"""Requests the top `number` highest SQB Activity people from the squadron"""
-		await interaction.response.defer(thinking=True)
-		await self.bot.squadron.updateMembers()
-		topmembers = self.bot.squadron.SortBySQBPoints()
-		if len(topmembers) == 0:
-			await interaction.edit_original_response(content=f"There seems to be nobody in the squadron with any SQB points.")
-			return
-		if len(topmembers) > number: topmembers = topmembers[:number]
-		top_10_message = f"Top {len(topmembers)} Users:\n"
-		for i, user in enumerate(topmembers, 1):
-			top_10_message += f"{i}. {genericUtil.demarkdownify(user.name)}: {user.sqb_rating}\n"
-		await interaction.edit_original_response(content=top_10_message)
-
-	@discord.app_commands.command()
-	@discord.app_commands.guild_only()
-	async def get_user(self, interaction:discord.Interaction, username:str):
-		class InvalidUsersLView(discord.ui.LayoutView):
-			def __init__(self, bot:'Bot'):
-				super().__init__(timeout=0)
-				self.bot = bot
-				self.user = bot.db.getByName(username)
-				if self.user is None:
-					self.add_item(discord.ui.TextDisplay("No such user is in the database"))
-				else:
-					self.add_item(discord.ui.TextDisplay(f"### Username\n\t'{genericUtil.demarkdownify(self.user.username)}'"))
-					self.add_item(discord.ui.TextDisplay(f"### ID\n\t{self.user.discord_id}"))
-					self.add_item(discord.ui.TextDisplay(f"### Join date\n\t{self.user.joindate.strftime("%Y-%m-%d")}"))
-					self.add_item(discord.ui.TextDisplay(f"### Status\n\t{self.user.status}"))
-					if self.user.timezone is not None:
-						tmp = (datetime.now(UTC)+timedelta(hours=self.user.timezone))
-						self.add_item(discord.ui.TextDisplay(f"### Timezone\n\tUTC {"-" if self.user.timezone<0 else "+"}{self.user.timezone} (Currently it is `{tmp.strftime("%H:%M")}` (`{(tmp+timedelta(hours=1)).strftime("%H:%M")}` if DST is in effect) for them.)"))
-					else:
-						self.add_item(discord.ui.TextDisplay(f"### Timezone\n\tUnknown"))
-		await interaction.response.send_message(view=InvalidUsersLView(self.bot))
 	
 	@discord.app_commands.command()
 	@discord.app_commands.guild_only()
+	@discord.app_commands.default_permissions(manage_roles=True)
+	@discord.app_commands.checks.has_permissions(manage_roles=True)
 	async def verify_user(self, interaction:discord.Interaction, username:str, user:discord.Member):
 		await interaction.response.defer(thinking=True)
 		await self.bot.squadron.updateMembers()
@@ -127,8 +91,38 @@ class AdminCog(commands.Cog):
 			if _ is not None:
 				self.bot.db.add_user(_, username=username, discord_id=user.id, joindate=member.joindate.date(), status=self.bot.db.Status.MEMBER)
 				await interaction.edit_original_response(content=f"Successfully verified user '{username}'")
+			else:
+				await interaction.edit_original_response(content="Could not retrieve user's gaijin ID")
 
+	@discord.app_commands.command()
+	@discord.app_commands.guild_only()
+	@discord.app_commands.default_permissions(ban_members=True)
+	@discord.app_commands.checks.has_permissions(ban_members=True)
+	@discord.app_commands.choices(
+		delete_messages = [
+			discord.app_commands.Choice(name="None", value=0),
+			discord.app_commands.Choice(name="5m", value=5*60),
+			discord.app_commands.Choice(name="15m", value=15*60),
+			discord.app_commands.Choice(name="30m", value=30*60),
+			discord.app_commands.Choice(name="1h", value=60*60),
+			discord.app_commands.Choice(name="6h", value=6*60*60),
+			discord.app_commands.Choice(name="12h", value=12*60*60),
+			discord.app_commands.Choice(name="1d", value=24*60*60),
+			discord.app_commands.Choice(name="2d", value=2*24*60*60),
+			discord.app_commands.Choice(name="3d", value=3*24*60*60),
+			discord.app_commands.Choice(name="4d", value=4*24*60*60),
+			discord.app_commands.Choice(name="5d", value=5*24*60*60),
+			discord.app_commands.Choice(name="6d", value=6*24*60*60),
+			discord.app_commands.Choice(name="7d", value=7*24*60*60),
+		]
+	)
+	async def softban(self, interaction:discord.Interaction, user:discord.Member, reason:str, delete_messages:int):
+		await interaction.response.defer(thinking=True, ephemeral=True)
+		if delete_messages > 24*60*60:
+			await user.ban(delete_message_days=delete_messages//24//60//60, reason=reason)
+		else:
+			await user.ban(delete_message_seconds=delete_messages, reason=reason)
+		await interaction.guild.unban(user, reason="softban")
+		await interaction.edit_original_response(content="User has been softbanned.")
 async def setup(bot: 'Bot'):
 	await bot.add_cog(AdminCog(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")

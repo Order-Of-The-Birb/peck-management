@@ -1,8 +1,11 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import discord, logging
 from discord.ext import commands
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from utils.bot import Bot
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
 #from utils.bot import 
 #import utils.generic as genericUtil
@@ -21,5 +24,3 @@ class className(commands.GroupCog, group_name=""):
 
 async def setup(bot:'Bot'):
 	await bot.add_cog(className(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")

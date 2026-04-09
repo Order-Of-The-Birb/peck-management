@@ -1,12 +1,16 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import discord, logging, re, aiohttp, asyncio
 from discord.ext import commands
 from datetime import datetime, timedelta, UTC
+from enum import IntEnum
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from modules.newsAPI import NewsAPI
 	from utils.bot import Bot
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
-#from utils.bot import 
+from utils.bot import ChannelIDs, RoleIDs
 import utils.generic as genericUtil
 import utils.time as timeUtil
 #import utils.wt as wtUtil
@@ -15,6 +19,7 @@ import utils.time as timeUtil
 __reload_deps__ = ("utils.generic", "utils.time")
 
 sqb_member_last_seen = datetime.now(UTC)-timedelta(minutes=30)
+
 class Listeners(commands.Cog):
 	def __init__(self, bot:'Bot'):
 		self.bot = bot
@@ -23,19 +28,7 @@ class Listeners(commands.Cog):
 		self.last_disconnect: datetime | None = None
 		self.logger.debug(f"{self.__class__.__name__} initialized")
 	# region DEFAULT LISTENERS
-	# region AutoMod
-	# on_automod_rule_create(rule)
-	# on_automod_rule_update(rule)
-	# on_automod_rule_delete(rule)
-	# on_automod_action(execution)
-	# endregion
-	# region Channels
-	# on_guild_channel_delete(channel)
-	# on_guild_channel_create(channel)
-	# on_guild_channel_update(before, after)
-	# on_guild_channel_pins_update(channel, last_pin)
-	# endregion
-	# region Connection
+	# region Bot
 	@commands.Cog.listener()
 	async def on_disconnect(self):
 		self.last_disconnect = datetime.now(UTC)
@@ -54,8 +47,7 @@ class Listeners(commands.Cog):
 				self.logger.debug(f"Bot reconnected after {delta.total_seconds():.1f}s")
 		else:
 			self.logger.debug(f"Bot connected at {now.isoformat()}")
-	# endregion
-	# region Debug
+
 	@commands.Cog.listener()
 	async def on_error(self, event:str, *args, **kwargs):
 		self.logger.error(f"An error occurred in '{event}'", exc_info=True)
@@ -65,8 +57,7 @@ class Listeners(commands.Cog):
 				await args[0].channel.send("An unexpected error occurred.")
 			except Exception:
 				pass
-	# endregion
-	# region Gateway
+
 	@commands.Cog.listener()
 	async def on_ready(self):
 		await self.bot.change_presence(activity=discord.Game("SQB with PECK"), status=discord.Status.online)
@@ -75,14 +66,13 @@ class Listeners(commands.Cog):
 	async def on_resumed(self):
 		self.logger.debug("Bot resumed session")
 	# endregion
-	# region Members
-	# on_member_join(member)
+	# region Member
 	@commands.Cog.listener()
 	async def on_member_remove(self, member:discord.Member):
 		user = self.bot.db.getByDID(member.id)
 		if user:
 			user.sort(key=lambda x: x.joindate)
-			channel = self.bot.get_channel(self.bot.channelIDs["logs"])
+			channel = self.bot.get_channel(self.bot.channelIDs[ChannelIDs.LOGS])
 			embed = discord.Embed(title="User left", description="A Squadron member left the server!", color=0xb7a287)
 			embed.add_field(name="Discord name", value=f"{member.name}", inline=False)
 			embed.add_field(name="UID", value=f"{member.id}", inline=False)
@@ -97,13 +87,8 @@ class Listeners(commands.Cog):
 				else:
 					user.leave_info = self.bot.db.LeaveInfo.SERVER
 				user.push()
-	# on_member_update(before, after)
-	# on_user_update(before, after)
-	# on_member_ban(guild, user)
-	# on_member_unban(guild, user)
-	# 
 	# endregion
-	# region Messages
+	# region Message
 	trevortimes:int = 0
 	@commands.Cog.listener()
 	async def on_message(self, message:discord.Message):
@@ -112,7 +97,7 @@ class Listeners(commands.Cog):
 			embed = discord.Embed(title=f"DM sent to PECK bot")
 			embed.add_field(name="", value=message.content, inline=True)
 			embed.set_footer(text=f"{message.author.name} ({message.author.id})")
-			await self.bot.get_channel(self.bot.channelIDs["spam"]).send(embed=embed)
+			await self.bot.get_channel(self.bot.channelIDs[ChannelIDs.SPAM]).send(embed=embed)
 		elif "clip" in message.content.lower():
 			temp = self.bot.get_guild(self.bot.peckServer)
 			if temp is None:
@@ -135,11 +120,11 @@ class Listeners(commands.Cog):
 			subject_clips_links:list[discord.Attachment] = []
 			async for _message in subject.history(limit=None, oldest_first=True):
 				subject_clips_links.extend(_message.attachments)
-			if (expire_time := self.bot.clipTimeout.getExpireTime(message.author.id)) and self.bot.clipTimeout.isTimedOut(message.author.id):
+			if (expire_time := self.bot.timeouts["clip"].getExpireTime(message.author.id)) and self.bot.timeouts["clip"].isTimedOut(message.author.id):
 				await message.reply(f"You are under cooldown. It will expire {timeUtil.discord_timestamp(expire_time, "R")}", delete_after=5)
 				return
 			else:
-				self.bot.clipTimeout.add(message.author.id)
+				self.bot.timeouts["clip"].add(message.author.id)
 			if len(subject_clips_links) > 10:
 				for num, i in enumerate(range(0, len(subject_clips_links), 10)):
 					await message.reply(f"Part {num+1}:\n{"\n".join([i.url for i in subject_clips_links[i-10:i]])}", mention_author=False)
@@ -149,18 +134,19 @@ class Listeners(commands.Cog):
 		elif any(i in message.content.lower() for i in ["updoot", "downdoot", "upvote", "downvote"]):
 			updoot_msg = message.reference if message.reference else message
 			await updoot_msg.add_reaction(self.bot.get_emoji(1277999470038220902))
+			await asyncio.sleep(0.2)
 			await updoot_msg.add_reaction(self.bot.get_emoji(1277999500262244362))
 		elif (match := re.match(r"peckbot[,:\s]+(.*)", message.content, flags=re.IGNORECASE)) is not None:
 			prompt:str = match.group(1)
 			if not prompt:
 				await message.reply(f"You need to provide a prompt if you want to ask Peckbot something.", delete_after=5)
 				return
-			if self.bot.aiTimeout.isTimedOut(message.author.id):
-				await message.reply(f"You are under cooldown. It will expire {timeUtil.discord_timestamp(self.bot.aiTimeout.getOldest(message.author.id)+timedelta(minutes=5), "R")}", delete_after=5)
+			if self.bot.timeouts["ai"].isTimedOut(message.author.id):
+				await message.reply(f"You are under cooldown. It will expire {timeUtil.discord_timestamp(self.bot.timeouts["ai"].getOldest(message.author.id)+timedelta(minutes=5), "R")}", delete_after=5)
 				return
 			else:
-				self.bot.aiTimeout.add(message.author.id)
-			async with aiohttp.ClientSession(base_url="http://desktop-alex.tail598095.ts.net") as session:
+				self.bot.timeouts["ai"].add(message.author.id)
+			async with aiohttp.ClientSession(base_url="http://127.0.0.1") as session:
 				try:
 					payload = {
 						"model": "gemma4",
@@ -199,104 +185,34 @@ class Listeners(commands.Cog):
 			await message.channel.send("https://tenor.com/view/trevor-moment-discord-swag-meme-gif-20463477") 
 			self.trevortimes += 1
 			self.logger.info(f"Trevor has been sent {self.trevortimes} times")
-	# on_message_edit(before, after)
-	# on_message_delete(message)
-	# on_bulk_message_delete(messages)
 	# endregion
-	# region Roles
-	# on_guild_role_create(role)
-	# on_guild_role_delete(role)
-	# on_guild_role_update(before, after)
-	# endregion
-	# region Scheduled Events
+	# region Scheduled Event
 	@commands.Cog.listener()
 	async def on_scheduled_event_create(self, event:discord.ScheduledEvent):
-		announcementsCh = self.bot.get_channel(self.bot.channelIDs["announcements"])
-		if event.name.lower().startswith("[event]"):
-			await announcementsCh.send(f"A new event is starting soon:tm:!\n{event.url}")
-		if event.name.lower().startswith("[sqb]"):
-			if not self.bot.memberHasRole("member", event.creator_id):
-				await self.bot.get_channel(self.bot.channelIDs["logs"]).send(f"User {event.creator.name} ({event.creator.id}) tried announcing SQB while not being a member")
-				await event.delete()
-			else:
+		if event.name.startswith("["):
+			announcementsCh = self.bot.get_channel(self.bot.channelIDs[ChannelIDs.ANNOUNCEMENTS])
+			if event.name.lower().startswith("[event]"):
+				await announcementsCh.send(f"A new event is starting soon:tm:!\n{event.url}")
+			if event.name.lower().startswith("[sqb]"):
 				await announcementsCh.send(f"An SQB session has been scheduled by a member!\n{event.url}")
-	# on_scheduled_event_delete(event)
-	# on_scheduled_event_update(before, after)
-	# endregion
-	# region Threads
-	# on_thread_create(thread)
-	# on_thread_join(thread)
-	# on_thread_update(before, after)
-	# on_thread_remove(thread)
-	# on_thread_delete(thread)
-	# endregion
-	# region Voice
-	@commands.Cog.listener()
-	async def on_voice_state_update(self, member:discord.Member, before:discord.VoiceState, after:discord.VoiceState):
-		leftChannel = before.channel is not None and after.channel is None
-		joinedChannel = before.channel is None and after.channel is not None
-		if member.id in self.bot.planSQB.applicants:
-			sqbCh = self.bot.get_channel(self.bot.channelIDs["sqb"])
-			self.bot.planSQB.applicantInChannel = any(i.id in self.bot.planSQB.applicants for i in sqbCh.members)
-			if joinedChannel and after.channel.id == self.bot.channelIDs["sqb"]:
-				self.bot.planSQB.applicantJoinedChannel = True
-				self.bot.dispatch("sqbplancheck")
-			elif leftChannel and before.channel.id == self.bot.channelIDs["sqb"] and len(before.channel.members) <= 0:
-				global sqb_member_last_seen
-				sqb_member_last_seen = datetime.now(UTC)
 	# endregion
 	# endregion
-	# region CUSTOM LISTENERS			
+	# region CUSTOM LISTENERS
 	@commands.Cog.listener()
 	async def on_newsapi_post(self, data:'NewsAPI.News'):
 		self.logger.debug("Dispatch for NewsAPI post received")
-		news_ch = self.bot.get_channel(self.bot.channelIDs["wtNews"])
+		news_ch = self.bot.get_channel(self.bot.channelIDs[ChannelIDs.WTNEWS])
 		ImportanceEnum = self.bot.newsAPI.News.ImportanceLevel
 		match data.importance:
 			case ImportanceEnum.EVENT:
-				ping_role = self.bot.roleIDs["eventNews"]
+				ping_role = self.bot.roleIDs[RoleIDs.EVENT_NEWS]
 			case ImportanceEnum.MAJOR:
-				ping_role = self.bot.roleIDs["majorNews"]
+				ping_role = self.bot.roleIDs[RoleIDs.MAJOR_NEWS]
 			case _:
 				ping_role = None
 		await news_ch.send(content="" if ping_role is None else f"<@&{ping_role}>", embed=data.buildEmbed(self.bot.iconURL))
 		self.logger.debug("Dispatch for NewsAPI Post complete")
-
-	@commands.Cog.listener()
-	async def on_sqbplancheck(self):
-		try:
-			if not timeUtil.isInTimebracket(self.bot.planSQB.timeframe if self.bot.planSQB.timeframe else None):
-				if self.bot.planSQB.timeframe and self.bot.planSQB.timeframe[1] < datetime.now(UTC):
-					self.logger.debug("Resetting bot.planSQB")
-					self.bot.planSQB = self.bot._PlanSQB()
-				return
-			if not self.bot.planSQB.applicantInChannel and self.bot.planSQB.applicantJoinedChannel and sqb_member_last_seen + self.bot.sqbPlanCheckLimit < datetime.now(UTC):
-				announcementsCh = self.bot.get_channel(self.bot.channelIDs["announcements"])
-				embed = discord.Embed(title="SQB cancellation", color=0xFF0000, description=f"SQB has been automatically cancelled due to no member being present for the past {round(self.bot.sqbPlanCheckLimit.total_seconds()//60%60)} minutes.")
-				await announcementsCh.send(embed=embed)
-				self.bot.planSQB = self.bot._PlanSQB()
-				return
-			if not self.bot.planSQB.applicantInChannel or self.bot.planSQB.announced:
-				return
-			self.logger.debug("Announcing SQB from plan")
-			sqbVCMembers = [i.id for i in self.bot.get_channel(self.bot.channelIDs["sqb"]).members]
-			directMentionUsers:list[discord.User] = []
-			for _id in self.bot.planSQB.applicants:
-				user = self.bot.get_user(_id)
-				if user and user.id not in sqbVCMembers:
-					try:
-						await user.send(f"The SQB session you applied for has started. Please join <#{self.bot.channelIDs["sqb"]}>")
-					except discord.Forbidden:
-						directMentionUsers.append(user)
-			if directMentionUsers:
-				channel = self.bot.get_channel(self.bot.channelIDs["announcements"])
-				await channel.send(f"The SQB session is starting.\nThe following people applied but could not be notified by DM\n{", ".join([i.mention for i in directMentionUsers])}")
-			self.bot.planSQB.announced = True
-		except Exception:
-			self.logger.exception("An error occurred while announcing SQB")
 	# endregion
 
 async def setup(bot:'Bot'):
 	await bot.add_cog(Listeners(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")

@@ -1,7 +1,9 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import discord, logging, re
 from discord.ext import commands
 from typing import TYPE_CHECKING
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from psutil import virtual_memory, Process as psutilProcess
 from psutil._common import bytes2human
 if __name__ == "__main__":
@@ -10,8 +12,9 @@ if __name__ == "__main__":
 	sys_path.append(path.abspath(path.join(path.dirname(__file__), '..')))
 if TYPE_CHECKING:
 	from utils.bot import Bot
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
-#from utils.bot import 
+from utils.bot import ChannelIDs, RoleIDs
 import utils.generic as genericUtil
 #import utils.time as timeUtil
 import utils.wt as wtUtil
@@ -73,7 +76,7 @@ class NormalCog(commands.Cog):
 				if userInfo is not None:
 					if userInfo.status == self.parent.bot.db.Status.MEMBER:
 						if interaction.user.id != userInfo.discord_id:
-							await self.parent.bot.get_channel(self.parent.bot.channelIDs["spam"]).send(f"{interaction.user.name} ({interaction.user.id}) tried joining with the username \"{username}\", but this username is already registered as a member.")
+							await self.parent.bot.get_channel(self.parent.bot.channelIDs[ChannelIDs.SPAM]).send(f"{interaction.user.name} ({interaction.user.id}) tried joining with the username \"{username}\", but this username is already registered as a member.")
 							await interaction.edit_original_response(content="User is already registered in the squadron. Possible false name detected.")
 							self.parent.logger.warning(f"User {interaction.user.name} ({interaction.user.id}) tried applying with an username already in the database")
 						else:
@@ -113,12 +116,12 @@ class NormalCog(commands.Cog):
 					try:
 						embed.title = "User verified"
 						guild = self.parent.bot.get_guild(self.parent.bot.peckServer)
-						memberRole = guild.get_role(self.parent.bot.roleIDs["member"])
+						memberRole = guild.get_role(self.parent.bot.roleIDs[RoleIDs.MEMBER])
 						await interaction.user.add_roles(memberRole)
 						for roleID in self.parent.bot.commonRoles:
 							commonRole = guild.get_role(roleID)
 							await interaction.user.remove_roles(commonRole)
-						await interaction.user.remove_roles(guild.get_role(self.parent.bot.roleIDs["applicant"]))
+						await interaction.user.remove_roles(guild.get_role(self.parent.bot.roleIDs[RoleIDs.APPLICANT]))
 						await interaction.edit_original_response(content="You have been successfully added to the database")
 					except Exception:
 						self.parent.logger.exception("An error occurred while giving roles to an applicant")
@@ -128,7 +131,7 @@ class NormalCog(commands.Cog):
 				# endregion
 				# region Logging
 				try:
-					channel = self.parent.bot.get_channel(self.parent.bot.channelIDs["spam"])
+					channel = self.parent.bot.get_channel(self.parent.bot.channelIDs[ChannelIDs.SPAM])
 					embed.set_author(name=f"{interaction.user.name} ({interaction.user.id})", icon_url=interaction.user.display_avatar.url)
 					embed.add_field(name="DC Username", value=interaction.user.name)
 					embed.add_field(name="Discord UID", value=interaction.user.id)
@@ -235,7 +238,7 @@ class NormalCog(commands.Cog):
 				embed.add_field(name="Category", value=report_category.values[0])
 				embed.add_field(name="Evidence URL", value=url, inline=False)
 				self._logger.debug(f"Report from {interaction.user.name} ({interaction.user.id})\nWT username: {username}\nReport message: {report_msg}")
-				await self.bot.get_channel(self.bot.channelIDs["spam"]).send(embed=embed)
+				await self.bot.get_channel(self.bot.channelIDs[ChannelIDs.SPAM]).send(embed=embed)
 				await interaction.edit_original_response(content="Report submitted!")
 			async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
 				await interaction.edit_original_response(content='Oops! Something went wrong.')
@@ -263,6 +266,33 @@ class NormalCog(commands.Cog):
 			await interaction.edit_original_response(content=e)
 			return
 		await interaction.edit_original_response(content="Here you go", attachments=[file,])
+
+	@discord.app_commands.command()
+	async def ge_to_gjn(self, interaction:discord.Interaction, value:int):
+		inaccuracyDisclaimer = value < 150 or value > 75000 # Gaijin's limits
+		invalidValueChanged = value % 10 != 0 # Gaijin limit: Increments of 10
+		if invalidValueChanged: value = round(value, -1)
+		msg_content = ""
+		if invalidValueChanged: msg_content += "An invalid value was given for the value (Not divisible by 10), so the value is calculated using a rounded value\n"
+		msg_content += f"{value} GE is worth {0.0066*value} GJN/EUR\n"
+		if inaccuracyDisclaimer: msg_content += "-# Due to gaijin's limitations, we cannot make sure that the value given is the correct value\n"
+		await interaction.response.send_message(msg_content)
+	
+	@discord.app_commands.command()
+	async def top_members(self, interaction: discord.Interaction, number:int=8):
+		"""Requests the top `number` highest SQB Activity people from the squadron"""
+		await interaction.response.defer(thinking=True)
+		await self.bot.squadron.updateMembers()
+		topmembers = self.bot.squadron.SortBySQBPoints()
+		if len(topmembers) == 0:
+			await interaction.edit_original_response(content=f"There seems to be nobody in the squadron with any SQB points.")
+			return
+		if len(topmembers) > number: topmembers = topmembers[:number]
+		top_10_message = f"Top {len(topmembers)} Users:\n"
+		for i, user in enumerate(topmembers, 1):
+			top_10_message += f"{i}. {genericUtil.demarkdownify(user.name)}: {user.sqb_rating}\n"
+		await interaction.edit_original_response(content=top_10_message)
+	
 	# region Download Commands
 	group_download = discord.app_commands.Group(name="download", description="Commands for downloading media from providers")
 
@@ -286,7 +316,7 @@ class NormalCog(commands.Cog):
 
 	@group_requests.command(name="warthunder")
 	@discord.app_commands.describe(user="The user to search for")
-	async def request_user(self, interaction: discord.Interaction, user:discord.Member):
+	async def request_wt(self, interaction: discord.Interaction, user:discord.Member):
 		"""Requests a user's War Thunder username(s) from the database"""
 		await interaction.response.defer(thinking=True)
 		if not (db_user := self.bot.db.getByDID(user.id)):
@@ -296,7 +326,7 @@ class NormalCog(commands.Cog):
 
 	@group_requests.command(name="discord")
 	@discord.app_commands.describe(user="The War Thunder username to search for")
-	async def request(self, interaction: discord.Interaction, user:str):
+	async def request_dc(self, interaction: discord.Interaction, user:str):
 		"""Requests a user's ID based on the WT username in the database"""
 		await interaction.response.defer(thinking=True)
 		if (db_user := self.bot.db.getByName(user)) is not None:
@@ -311,5 +341,3 @@ class NormalCog(commands.Cog):
 
 async def setup(bot:'Bot'):
 	await bot.add_cog(NormalCog(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")

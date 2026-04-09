@@ -58,25 +58,10 @@ class genericButtons(discord.ui.View):
 		if deny and denyFunc is not None:
 			self.add_item(no)
 
-def httperror(response:requests.Response|aiohttp.ClientResponse) -> tuple[int, str]:
+def httperror(response:requests.Response|aiohttp.ClientResponse) -> str:
 	if isinstance(response, aiohttp.ClientResponse):
-		return response.status, requests.status_codes._codes[response.status][0]
-	return response.status_code, requests.status_codes._codes[response.status_code][0]
-async def random_propaganda(bot:'Bot') -> str:
-	"""Selects a random propaganda post and returns with it"""
-	propaganda_ch = bot.get_channel(bot.channelIDs["propaganda"])
-	messages = []
-	async for i in propaganda_ch.history():
-		if i.attachments:
-			for attachment in i.attachments:
-				messages.append(attachment.url)
-	return messages[random.randint(0, len(messages)-1)]
-async def updooter(bot:'Bot', message:discord.Message|discord.MessageReference):
-	if isinstance(message, discord.MessageReference):
-		message = await bot.get_channel(message.channel_id).fetch_message(message.message_id)
-	await message.add_reaction(bot.get_emoji(1277999470038220902))
-	await asyncio.sleep(0.2)
-	await message.add_reaction(bot.get_emoji(1277999500262244362))
+		return requests.status_codes._codes[response.status][0]
+	return requests.status_codes._codes[response.status_code][0]
 async def convertImageToGif(image:discord.Attachment) -> discord.File:
 	allowed_types = ["png", "jpg", "jpeg", "webp"]
 	file_extension = image.filename.split(".")[-1].lower()
@@ -117,8 +102,7 @@ async def medalDownload(share_url:str) -> discord.File:
 	async with aiohttp.ClientSession() as session:
 		async with session.get(share_url) as response:
 			if response.status != 200: 
-				err = httperror(response)
-				raise LookupError(f"Medal website returned {err[0]} ({err[1]})")
+				raise LookupError(f"Medal website returned {response.status} ({httperror(response)})")
 			html = await response.text()
 	file_url = None
 	if '"contentUrl":"' in html:

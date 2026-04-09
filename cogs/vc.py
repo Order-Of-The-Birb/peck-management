@@ -1,11 +1,14 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import discord, logging, re
 from discord.ext import commands
 from datetime import datetime, timedelta, UTC
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
 	from utils.bot import Bot
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
-#from utils.bot import 
+from utils.bot import CategoryIDs
 #import utils.generic as genericUtil
 #import utils.time as timeUtil
 #import utils.wt as wtUtil
@@ -25,7 +28,7 @@ class VcCog(commands.GroupCog, group_name="squad"):
 			if len(self.bot.squadVC.channels)!=0:
 				self.logger.critical("Channels list is not empty")
 				return
-			category = next((i for i in bot.get_guild(self.bot.peckServer).categories if i.id == self.bot.categoryIDs["squadVC"]), None)
+			category = next((i for i in bot.get_guild(self.bot.peckServer).categories if i.id == self.bot.categoryIDs[CategoryIDs.SQUAD_VC]), None)
 			if category is None: raise ValueError("Could not find the squad VC category")
 			self.bot.squadVC.channels=[self.bot.squadVC.SquadVCData(i.id, datetime.now(UTC).timestamp(), None, datetime.now(UTC).timestamp()) 
 				for i in category.voice_channels 
@@ -55,7 +58,7 @@ class VcCog(commands.GroupCog, group_name="squad"):
 			if channel.creator == interaction.user.id and channel.created >= _30min_ago:
 				await interaction.edit_original_response(content="You created a channel recently, chill out dude...")
 				return
-		category = next((category for category in self.bot.get_guild(self.bot.peckServer).categories if category.id == self.bot.categoryIDs["squadVC"]), None)
+		category = next((category for category in self.bot.get_guild(self.bot.peckServer).categories if category.id == self.bot.categoryIDs[CategoryIDs.SQUAD_VC]), None)
 		if category is None: raise ValueError("Category not found... Does the server still exist?")
 		squad_voice_channels = [i for i in interaction.guild.voice_channels if self.SQUADVC_RE.fullmatch(i.name) is not None and i in category.voice_channels]
 		squad_numbers = sorted([int(i.name.split()[-1]) for i in squad_voice_channels], reverse=True)
@@ -102,5 +105,3 @@ class VcCog(commands.GroupCog, group_name="squad"):
 
 async def setup(bot: 'Bot'):
 	await bot.add_cog(VcCog(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")

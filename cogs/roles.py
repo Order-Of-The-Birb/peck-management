@@ -1,3 +1,5 @@
+if __name__ == "__main__":
+	raise Exception("Start the program from the main process")
 import discord, logging
 from discord.ext import commands
 from datetime import datetime, UTC
@@ -9,8 +11,9 @@ if __name__ == "__main__":
 	sys_path.append(path.abspath(path.join(path.dirname(__file__), '..')))
 if TYPE_CHECKING:
 	from utils.bot import Bot
+# ChannelIDs, RoleIDs, CategoryIDs
 # owner_only, officer_only, members_only, debug_only
-#from utils.bot import 
+from utils.bot import RoleIDs, ChannelIDs
 #import utils.generic as genericUtil
 #import utils.time as timeUtil
 #import utils.wt as wtUtil
@@ -35,7 +38,7 @@ class RolesCog(commands.GroupCog, group_name="role"):
 	async def get_role(self, interaction:discord.Interaction, role:int):
 		await interaction.response.defer(thinking=True)
 		if role == 1:
-			pingrole = interaction.guild.get_role(self.bot.roleIDs["ping"])
+			pingrole = interaction.guild.get_role(self.bot.roleIDs[RoleIDs.PING])
 			if pingrole in interaction.user.roles:
 				await interaction.edit_original_response(content=f"You already have the role. If you wish to remove it use the `/role remove` command!")
 				return
@@ -48,7 +51,7 @@ class RolesCog(commands.GroupCog, group_name="role"):
 				return
 			main_profile = min(main_profile, key=lambda u: (u.joindate is None, u.joindate))
 			x_time_ago = (datetime.now(UTC) - old_timer_interval).date()
-			old_timer = interaction.guild.get_role(self.bot.roleIDs["oldTimer"])
+			old_timer = interaction.guild.get_role(self.bot.roleIDs[RoleIDs.OLD_TIMER])
 			if main_profile.joindate is None:
 				await interaction.edit_original_response(content=f"You seem to not have a join date saved in the database. Please contact <@{self.bot.yoshinoID}> about this.")
 			elif interaction.user.get_role(old_timer.id) is not None:
@@ -60,7 +63,7 @@ class RolesCog(commands.GroupCog, group_name="role"):
 				await interaction.edit_original_response(content="Role given.")
 				embed = discord.Embed(title="Old timer role promotion")
 				embed.add_field(name="Discord user", value=interaction.user.mention)
-				tmp = self.bot.get_channel(self.bot.channelIDs["spam"])
+				tmp = self.bot.get_channel(self.bot.channelIDs[ChannelIDs.SPAM])
 				await tmp.send(embed=embed)
 
 	@discord.app_commands.command(name="remove")
@@ -71,7 +74,7 @@ class RolesCog(commands.GroupCog, group_name="role"):
 	async def rm_role(self, interaction:discord.Interaction, role:int):
 		await interaction.response.defer(thinking=True, ephemeral=True)
 		if role == 1:
-			pingrole = interaction.guild.get_role(self.bot.roleIDs["ping"])
+			pingrole = interaction.guild.get_role(self.bot.roleIDs[RoleIDs.PING])
 			if pingrole not in interaction.user.roles:
 				await interaction.edit_original_response(content=f"You don't have the role. If you wish to get it use the `/role get` command!")
 				return
@@ -80,5 +83,3 @@ class RolesCog(commands.GroupCog, group_name="role"):
 
 async def setup(bot:'Bot'):
 	await bot.add_cog(RolesCog(bot))
-if __name__ == "__main__":
-	raise Exception("Start the program from the main process")
