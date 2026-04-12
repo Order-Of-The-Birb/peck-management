@@ -194,6 +194,14 @@ class Bot(commands.Bot):
 			1005502691713237035, # Main Bot
 			1007702877264941127 # Testing Bot
 		]
+		self.authorityRoleIDs = [
+			917852215014727742,  # The Birbman
+			917944202015408189, # Deputy
+			917945129921302599, # Officer
+			918571367027322890, # Administr8ors
+			1185637328446816299, # Emergency Admin
+			1477307536305557516 # Testing server Officer
+		]
 		self.yoshinoID = 332030423913725953
 		self.sqb_season_length = 2
 		self.db = UserRepository()

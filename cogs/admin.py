@@ -28,7 +28,7 @@ class AdminCog(commands.Cog):
 			self.logger.warning(f"Unauthorized request\n\tCommand:{interaction.command.name}\t\nUser:{interaction.user.name}({interaction.user.id})\n\tReason: Admin command in DMs")
 			await interaction.response.send_message("You need to execute this command in a server (Required to check for permissions)")
 			return False
-		if interaction.user.guild_permissions.manage_messages:
+		if any(i.id in self.bot.authorityRoleIDs for i in interaction.user.roles):
 			return True
 		self.logger.warning(f"User {interaction.user.name} ({interaction.user.id}) tried using an admin command without the needed permissions")
 		return False
