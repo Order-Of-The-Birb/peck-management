@@ -34,6 +34,7 @@ class genericButtons(discord.ui.View):
 			if self.requiredPerms is not None and not all(getattr(interaction.user.guild_permissions, p[0], False) for p in self.requiredPerms if p[1]):
 				self._logger.warning(f"Accept attempt by: {interaction.user.name} ({interaction.user.id})")
 				await interaction.followup.send("You do not have the required permission to use this!", ephemeral=True)
+				return
 			result = await acceptFunc(interaction, **kwargs)
 			if result:
 				yes.disabled = True
@@ -46,6 +47,7 @@ class genericButtons(discord.ui.View):
 			if self.requiredPerms is not None and not all(getattr(interaction.user.guild_permissions, p[0], False) for p in self.requiredPerms if p[1]):
 				self._logger.warning(f"Deny attempt by: {interaction.user.name} ({interaction.user.id})")
 				await interaction.followup.send("You do not have the required permission to use this!", ephemeral=True)
+				return
 			result = await denyFunc(interaction, **kwargs)
 			if result:
 				yes.disabled = True
@@ -104,53 +106,53 @@ async def medalDownload(share_url:str) -> discord.File:
 			if response.status != 200: 
 				raise LookupError(f"Medal website returned {response.status} ({httperror(response)})")
 			html = await response.text()
-	file_url = None
-	if '"contentUrl":"' in html:
-		file_url = html.split('"contentUrl":"')[1].split('","')[0]
-	if not file_url: 
-		raise LookupError("Could not find download URL in website")
-	with tempfile.TemporaryDirectory() as tmpdir:
-		input_path = path.join(tmpdir, "input.mp4")
-		output_path = path.join(tmpdir, "output.mp4")
-		async with session.get(file_url) as r:
-			with open(input_path, "wb") as f:
-				async for chunk in r.content.iter_chunked(1024 * 1024):
-					f.write(chunk)
-		# Get duration using ffprobe
-		probe = subprocess.run(
-			[
-				"ffprobe",
-				"-v", "error",
-				"-select_streams", "v:0",
-				"-show_entries", "format=duration",
-				"-of", "json",
-				input_path
-			],
-			capture_output=True,
-			text=True
-		)
+		file_url = None
+		if '"contentUrl":"' in html:
+			file_url = html.split('"contentUrl":"')[1].split('","')[0]
+		if not file_url: 
+			raise LookupError("Could not find download URL in website")
+		with tempfile.TemporaryDirectory() as tmpdir:
+			input_path = path.join(tmpdir, "input.mp4")
+			output_path = path.join(tmpdir, "output.mp4")
+			async with session.get(file_url) as r:
+				with open(input_path, "wb") as f:
+					async for chunk in r.content.iter_chunked(1024 * 1024):
+						f.write(chunk)
+			# Get duration using ffprobe
+			probe = subprocess.run(
+				[
+					"ffprobe",
+					"-v", "error",
+					"-select_streams", "v:0",
+					"-show_entries", "format=duration",
+					"-of", "json",
+					input_path
+				],
+				capture_output=True,
+				text=True
+			)
 
-		duration = float(loads(probe.stdout)["format"]["duration"])
-		# Discord 10 MB limit
-		target_bits = 10 * 1024 * 1024 * 8
-		total_bitrate = int(target_bits / duration)
-		# Reserve some bitrate for audio
-		audio_bitrate = 128_000
-		video_bitrate = max(total_bitrate - audio_bitrate, 300_000)
-		# Compress
-		subprocess.run(
-			[
-				"ffmpeg", "-y",
-				"-i", input_path,
-				"-c:v", "libx264",
-				"-b:v", str(video_bitrate),
-				"-maxrate", str(video_bitrate),
-				"-bufsize", str(video_bitrate * 2),
-				"-c:a", "aac",
-				"-b:a", str(audio_bitrate),
-				output_path
-			],
-			check=True
-		)
-		return discord.File(output_path, filename="clip.mp4")
+			duration = float(loads(probe.stdout)["format"]["duration"])
+			# Discord 10 MB limit
+			target_bits = 10 * 1024 * 1024 * 8
+			total_bitrate = int(target_bits / duration)
+			# Reserve some bitrate for audio
+			audio_bitrate = 128_000
+			video_bitrate = max(total_bitrate - audio_bitrate, 300_000)
+			# Compress
+			subprocess.run(
+				[
+					"ffmpeg", "-y",
+					"-i", input_path,
+					"-c:v", "libx264",
+					"-b:v", str(video_bitrate),
+					"-maxrate", str(video_bitrate),
+					"-bufsize", str(video_bitrate * 2),
+					"-c:a", "aac",
+					"-b:a", str(audio_bitrate),
+					output_path
+				],
+				check=True
+			)
+			return discord.File(output_path, filename="clip.mp4")
 # endregion

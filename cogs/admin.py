@@ -15,7 +15,6 @@ import utils.wt as wtUtil
 # "utils.generic", "utils.time", "utils.wt"
 __reload_deps__ = ("utils.wt", "utils.generic")
 
-altAdminPerm:bool=True
 class AdminCog(commands.Cog):
 	bot:'Bot'
 	def __init__(self, bot:'Bot'):
