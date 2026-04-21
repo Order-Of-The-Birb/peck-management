@@ -158,6 +158,32 @@ test('api users store creates a record for valid api key users', function () {
     expect($createdUser?->initiator)->toBe($officerUser->gaijin_id);
 });
 
+test('api users store derives unverified status when member has no discord id', function () {
+    $admin = User::query()->create([
+        'name' => 'API Status Derivation Admin',
+        'email' => 'api-status-derivation-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $this->postJson('/api/v1/users', [
+        'token' => $apiToken,
+        'gaijin_id' => 820004,
+        'username' => 'created_without_discord',
+        'discord_id' => null,
+        'status' => 'member',
+    ])->assertCreated()
+        ->assertJsonPath('data.status', 'unverified');
+
+    expect(PeckUser::query()->find(820004)?->status)->toBe('unverified');
+});
+
 test('api users store rejects alt status', function () {
     $admin = User::query()->create([
         'name' => 'API Alt Validation Admin',
@@ -307,6 +333,7 @@ test('api users update only accepts officer initiators', function () {
     $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
         'token' => $apiToken,
         'username' => 'patched_user',
+        'discord_id' => 998877665544332211,
         'status' => 'member',
         'initiator' => $officerUser->gaijin_id,
     ])->assertOk()
@@ -319,6 +346,36 @@ test('api users update only accepts officer initiators', function () {
 
     expect($targetUser->username)->toBe('patched_user')
         ->and($targetUser->initiator)->toBe($officerUser->gaijin_id);
+});
+
+test('api users update promotes unverified user to member when discord id is provided', function () {
+    $admin = User::query()->create([
+        'name' => 'API Promote Unverified Admin',
+        'email' => 'api-promote-unverified-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $targetUser = PeckUser::factory()->create([
+        'gaijin_id' => 830004,
+        'username' => 'promote_unverified_target',
+        'status' => 'unverified',
+        'discord_id' => null,
+    ]);
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
+        'token' => $apiToken,
+        'discord_id' => 887766554433221100,
+    ])->assertOk()
+        ->assertJsonPath('data.status', 'member');
+
+    expect(PeckUser::query()->find($targetUser->gaijin_id)?->status)->toBe('member');
 });
 
 test('api users update removes leave info when status changes away from ex_member', function () {
@@ -348,9 +405,10 @@ test('api users update removes leave info when status changes away from ex_membe
 
     $this->patchJson('/api/v1/users/'.$exMemberUser->gaijin_id, [
         'token' => $apiToken,
+        'discord_id' => null,
         'status' => 'member',
     ])->assertOk()
-        ->assertJsonPath('data.status', 'member');
+        ->assertJsonPath('data.status', 'unverified');
 
     expect(PeckLeaveInfo::query()->find($exMemberUser->gaijin_id))->toBeNull();
 });

@@ -20,6 +20,11 @@ class PeckUser extends Model
         'member',
     ];
 
+    public const DASHBOARD_EDITABLE_STATUSES = [
+        'member',
+        'ex_member',
+    ];
+
     protected $table = 'peck_users';
 
     protected $primaryKey = 'gaijin_id';
@@ -61,6 +66,16 @@ class PeckUser extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::saving(function (self $peckUser): void {
+            $peckUser->status = self::resolvePersistedStatus(
+                status: (string) $peckUser->status,
+                discordId: $peckUser->discord_id,
+            );
+        });
+    }
+
     protected static function newFactory(): PeckUserFactory
     {
         return PeckUserFactory::new();
@@ -84,5 +99,18 @@ class PeckUser extends Model
     public function leaveInfo(): HasOne
     {
         return $this->hasOne(PeckLeaveInfo::class, 'user_id', 'gaijin_id');
+    }
+
+    public static function resolvePersistedStatus(string $status, mixed $discordId): string
+    {
+        if ($status === 'member' && $discordId === null) {
+            return 'unverified';
+        }
+
+        if ($status === 'unverified' && $discordId !== null) {
+            return 'member';
+        }
+
+        return $status;
     }
 }

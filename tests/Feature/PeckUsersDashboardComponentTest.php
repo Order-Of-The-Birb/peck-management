@@ -130,6 +130,27 @@ test('create user only accepts initiators from the officers table', function () 
     expect(PeckUser::query()->find(900003)?->initiator)->toBe($officerUser->gaijin_id);
 });
 
+test('dashboard status dropdown excludes applicant and unverified options', function () {
+    $admin = User::query()->create([
+        'name' => 'Dashboard Status Admin',
+        'email' => 'dashboard-status-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $this->actingAs($admin);
+
+    $component = Livewire::test(PeckUsersDashboard::class)
+        ->call('openCreateUserModal');
+
+    expect($component->instance()->editableStatuses())
+        ->toBe(['member', 'ex_member']);
+});
+
 test('authorized users can save edits and change gaijin id', function () {
     $admin = User::query()->create([
         'name' => 'Dashboard Editor',
@@ -154,7 +175,8 @@ test('authorized users can save edits and change gaijin id', function () {
         ->call('selectUser', $editableUser->gaijin_id)
         ->set('form.gaijin_id', '97729719')
         ->set('form.username', 'ntechnical_updated')
-        ->set('form.status', 'applicant')
+        ->set('form.status', 'member')
+        ->set('form.discord_id', '123456789012345678')
         ->set('form.tz', '0')
         ->set('form.initiator', null)
         ->call('save')
@@ -164,13 +186,13 @@ test('authorized users can save edits and change gaijin id', function () {
 
     expect(PeckUser::query()->find(96729719))->toBeNull();
     expect(PeckUser::query()->find(97729719)?->username)->toBe('ntechnical_updated');
-    expect(PeckUser::query()->find(97729719)?->status)->toBe('applicant');
+    expect(PeckUser::query()->find(97729719)?->status)->toBe('member');
 });
 
-test('authorized users can save applicant users without status validation errors', function () {
+test('saving a member without a discord id derives unverified status', function () {
     $admin = User::query()->create([
-        'name' => 'Applicant Status Editor',
-        'email' => 'applicant-status-editor@example.com',
+        'name' => 'Status Derivation Admin',
+        'email' => 'status-derivation-admin@example.com',
         'password' => 'password',
     ]);
 
@@ -183,6 +205,7 @@ test('authorized users can save applicant users without status validation errors
         'gaijin_id' => 98765432,
         'username' => 'applicant_account_user',
         'status' => 'applicant',
+        'discord_id' => null,
     ]);
 
     $this->actingAs($admin);
@@ -190,12 +213,46 @@ test('authorized users can save applicant users without status validation errors
     Livewire::test(PeckUsersDashboard::class)
         ->call('selectUser', $applicantUser->gaijin_id)
         ->set('form.status', 'member')
+        ->set('form.discord_id', null)
         ->set('form.tz', '0')
         ->call('save')
         ->assertHasNoErrors()
         ->assertDispatched('peck-user-saved');
 
-    expect(PeckUser::query()->find(98765432)?->status)->toBe('member');
+    expect(PeckUser::query()->find(98765432)?->status)->toBe('unverified');
+});
+
+test('editing an unverified user discord id promotes status to member', function () {
+    $admin = User::query()->create([
+        'name' => 'Unverified Discord Edit Admin',
+        'email' => 'unverified-discord-edit-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $unverifiedUser = PeckUser::factory()->create([
+        'gaijin_id' => 98765433,
+        'username' => 'unverified_discord_target',
+        'status' => 'unverified',
+        'discord_id' => null,
+        'tz' => 0,
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('selectUser', $unverifiedUser->gaijin_id)
+        ->set('form.discord_id', '123456789012345678')
+        ->call('save')
+        ->assertHasNoErrors()
+        ->assertDispatched('peck-user-saved');
+
+    expect(PeckUser::query()->find(98765433)?->status)->toBe('member');
+    expect(PeckUser::query()->find(98765433)?->discord_id)->toBe(123456789012345678);
 });
 
 test('leave info section only shows ex-members and allows leave info edits', function () {

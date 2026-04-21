@@ -112,7 +112,7 @@ class PeckUsersDashboard extends Component
         'username' => '',
         'discord_id' => null,
         'tz' => '0',
-        'status' => 'unverified',
+        'status' => 'member',
         'joindate' => null,
         'initiator' => null,
     ];
@@ -125,7 +125,7 @@ class PeckUsersDashboard extends Component
         'username' => '',
         'discord_id' => null,
         'tz' => '0',
-        'status' => 'unverified',
+        'status' => 'member',
         'joindate' => null,
         'initiator' => null,
     ];
@@ -342,7 +342,7 @@ class PeckUsersDashboard extends Component
      */
     public function editableStatuses(): array
     {
-        return PeckUser::STATUSES;
+        return PeckUser::DASHBOARD_EDITABLE_STATUSES;
     }
 
     /**
@@ -940,7 +940,7 @@ class PeckUsersDashboard extends Component
             'username' => '',
             'discord_id' => null,
             'tz' => '0',
-            'status' => 'unverified',
+            'status' => 'member',
             'joindate' => null,
             'initiator' => null,
         ];
@@ -976,7 +976,7 @@ class PeckUsersDashboard extends Component
             ],
             'form.status' => [
                 'required',
-                Rule::in($this->editableStatuses()),
+                Rule::in($this->allowedStatusesForCurrentForm()),
             ],
             'form.joindate' => [
                 'nullable',
@@ -995,6 +995,31 @@ class PeckUsersDashboard extends Component
                 },
             ],
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function allowedStatusesForCurrentForm(): array
+    {
+        $allowedStatuses = $this->editableStatuses();
+        $currentStatus = $this->form['status'] ?? null;
+
+        if (! is_string($currentStatus)) {
+            return $allowedStatuses;
+        }
+
+        if (! in_array($currentStatus, PeckUser::STATUSES, true)) {
+            return $allowedStatuses;
+        }
+
+        if (in_array($currentStatus, $allowedStatuses, true)) {
+            return $allowedStatuses;
+        }
+
+        $allowedStatuses[] = $currentStatus;
+
+        return $allowedStatuses;
     }
 
     /**
