@@ -162,6 +162,7 @@ class auditLogCog(commands.Cog):
 		*,
 		guild: discord.Guild,
 		target: discord.abc.Snowflake | None = None,
+		targeting: discord.Role|discord.Member|discord.User|None = None,
 		key: AuditLogDiffTypes | None = None,
 		lookupAfter: bool = True,
 		limit: int = 10
@@ -170,6 +171,8 @@ class auditLogCog(commands.Cog):
 		_missing = object()
 		async for entry in guild.audit_logs(limit=limit, action=action):
 			if target is not None and (entry.target is None or entry.target.id != target.id):
+				continue
+			if targeting is not None and not (entry.extra and entry.extra.id == targeting.id):
 				continue
 			if key is None:
 				return entry
@@ -231,6 +234,14 @@ class auditLogCog(commands.Cog):
 				],
 				footer_text=f"ID: {after.id}"
 			)
+		for obj, afterPerms in after.overwrites.items():
+			if (beforePerms := before.overwrites_for(obj)) == after.overwrites_for(obj): continue
+			if beforePerms.is_empty() and not afterPerms.is_empty():
+				pass
+			else:
+				pass
+		for obj, beforePerms in [(i, j) for i, j in before.overwrites.items() if after.overwrites_for(i).is_empty()]:
+			...
 	# on_guild_channel_pins_update(channel, last_pin)
 	# endregion
 	# region Guilds
