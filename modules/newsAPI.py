@@ -130,14 +130,17 @@ Changelogs news (webscraping): 'https://warthunder.com/en/game/changelog/'
 			return self.ImportanceLevel.REGULAR
 	periodicTask:'Task'|None = None
 	periodicChLogTask:'Task'|None = None
+	news_json_path:Path = Path("modules/news.json")
 	def __init__(self, bot:'Bot', startTasks:bool=True):
 		self._logger = logging.getLogger(__name__)
 		self.session = ClientSession(headers={"User-Agent": "PECK_bot/1.0 (War Thunder squadron bot; contact: https://discord.gg/wsn9Wcqqym)", "Accept": "application/json"})
 		self.bot = bot
 		self.lock = bot.ltsLock
-		if not Path.exists(Path("modules/news.json")):
-			with open("modules/news.json", "x") as file:
-				dump({}, file, indent=4)
+		if not self.news_json_path.exists():
+			self.news_json_path.touch(mode=0o600, exist_ok=True)
+			fp = self.news_json_path.open("w")
+			dump({}, fp, indent=4)
+			fp.close()
 		with open("modules/news.json", "r") as file:
 			savedValues:dict[str, Any] = load(file)
 		self.lastPostedNewsID = savedValues.get("lastPostedID", 0)

@@ -4,6 +4,7 @@ from logging.handlers import TimedRotatingFileHandler
 from os import environ, getenv, chdir, path
 from dotenv import load_dotenv
 from uvicorn import server
+from pathlib import Path
 # Custom packages
 from cogs import EXTENSIONS
 from utils.bot import Bot
@@ -28,8 +29,13 @@ def main():
 		filename = path.basename(default_name)
 		_, _, date = filename.rpartition(".")
 		return path.join(dirname, f"{date}.log")
+	logs_folder = Path() / "logs"
+	logs_folder.mkdir(exist_ok=True)
+	latest_log_path = logs_folder / "latest.log"
+	latest_log_path.touch(mode=0o600, exist_ok=True)
+	latest_log_path.chmod(0o600)
 	logger = logging.getLogger()
-	handler = TimedRotatingFileHandler("logs/latest.log", when="midnight", interval=1, utc=True, backupCount=5)
+	handler = TimedRotatingFileHandler(latest_log_path, when="midnight", interval=1, utc=True, backupCount=5)
 	handler.suffix = "%Y-%m-%d"
 	formatter = logging.Formatter(f"%(asctime)s:%(name)-{min(max(len(ext) for ext in EXTENSIONS), 30)}s:%(funcName)-15s:%(lineno)-3d:%(levelname)-7s:%(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 	handler.setFormatter(formatter)
