@@ -22,6 +22,8 @@ import utils.wt as wtUtil
 # "utils.generic", "utils.time", "utils.wt"
 __reload_deps__ = ("utils.wt", "utils.generic")
 
+PRESET_GE_PACKS = ("150","1000","2500","5000","10000","25000")
+
 def toSelectList(names:list[str]) -> list[discord.SelectOption]: return [discord.SelectOption(label=name) for name in names]
 class NormalCog(commands.Cog):
 	def __init__(self, bot:'Bot'):
@@ -269,12 +271,13 @@ class NormalCog(commands.Cog):
 
 	@discord.app_commands.command()
 	async def ge_to_gjn(self, interaction:discord.Interaction, value:int):
-		inaccuracyDisclaimer = value < 150 or value > 75000 # Gaijin's limits
+		inaccuracyDisclaimer = value < 150 or value > 75000 # Gaijin limit: 150 < value < 75000
 		invalidValueChanged = value % 10 != 0 # Gaijin limit: Increments of 10
 		if invalidValueChanged: value = round(value, -1)
 		msg_content = ""
 		if invalidValueChanged: msg_content += "An invalid value was given for the value (Not divisible by 10), so the value is calculated using a rounded value\n"
 		msg_content += f"{value} GE is worth {0.0066*value} GJN/EUR\n"
+		if str(value) in PRESET_GE_PACKS: msg_content += "There is a preset pack for this value of GE."
 		if inaccuracyDisclaimer: msg_content += "-# Due to gaijin's limitations, we cannot make sure that the value given is the correct value\n"
 		await interaction.response.send_message(msg_content)
 	
