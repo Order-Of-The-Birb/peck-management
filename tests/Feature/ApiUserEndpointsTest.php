@@ -4,6 +4,7 @@ use App\Models\ApiKey;
 use App\Models\Officer;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
+use App\Models\PeckUserContext;
 use App\Models\User;
 
 test('api users index returns filtered records', function () {
@@ -80,6 +81,39 @@ test('api users leave info show returns null or leave type', function () {
         ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT_SERVER);
 });
 
+test('api users context show returns public per-user context entries', function () {
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 810060,
+        'username' => 'context_show_target',
+    ]);
+
+    PeckUserContext::factory()->create([
+        'user_id' => $peckUser->gaijin_id,
+        'context_id' => 0,
+        'type' => PeckUserContext::TYPE_ONCE_ABSENCE,
+        'from_date' => '2026-05-01',
+        'to_date' => '2026-06-01',
+        'comment' => null,
+    ]);
+
+    PeckUserContext::factory()->create([
+        'user_id' => $peckUser->gaijin_id,
+        'context_id' => 1,
+        'type' => PeckUserContext::TYPE_RECURRING_ABSENCE,
+        'weekdays' => [0, 3, 6],
+        'comment' => null,
+    ]);
+
+    $this->getJson('/api/v1/users/'.$peckUser->gaijin_id.'/context')
+        ->assertOk()
+        ->assertJsonPath('0.id', 0)
+        ->assertJsonPath('0.type', PeckUserContext::TYPE_ONCE_ABSENCE)
+        ->assertJsonPath('0.from', '2026-05-01')
+        ->assertJsonPath('0.to', '2026-06-01')
+        ->assertJsonPath('1.id', 1)
+        ->assertJsonPath('1.weekdays', [0, 3, 6]);
+});
+
 test('api users index supports page query without pagination metadata in response', function () {
     PeckUser::factory()->create([
         'gaijin_id' => 811001,
@@ -110,6 +144,18 @@ test('api users store requires api key authentication', function () {
         'gaijin_id' => 820001,
         'username' => 'unauthorized_create',
         'status' => 'member',
+    ])->assertUnauthorized();
+});
+
+test('api users context store requires api key authentication', function () {
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 820120,
+        'username' => 'unauthorized_context_target',
+    ]);
+
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/context', [
+        'type' => PeckUserContext::TYPE_MISC,
+        'comment' => 'Max rank: 14.7',
     ])->assertUnauthorized();
 });
 
@@ -259,6 +305,73 @@ test('api users leave info upsert endpoint creates and updates leave info', func
         'type' => 'InvalidLeaveType',
     ])->assertUnprocessable()
         ->assertJsonValidationErrors(['type']);
+});
+
+test('api users context endpoints create split recurring entries and modify them', function () {
+    $admin = User::query()->create([
+        'name' => 'API Context Admin',
+        'email' => 'api-context-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 820130,
+        'username' => 'context_mutation_target',
+    ]);
+
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/context', [
+        'token' => $apiToken,
+        'type' => PeckUserContext::TYPE_MISC,
+        'comment' => 'Max rank: 14.7',
+    ])->assertCreated()
+        ->assertJsonPath('0.id', 0)
+        ->assertJsonPath('0.comment', 'Max rank: 14.7');
+
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/context', [
+        'token' => $apiToken,
+        'type' => PeckUserContext::TYPE_RECURRING_ABSENCE,
+        'weekdays' => [6, 0, 3],
+        'monthDay' => 26,
+    ])->assertCreated()
+        ->assertJsonCount(2)
+        ->assertJsonPath('0.id', 1)
+        ->assertJsonPath('0.weekdays', [0, 3, 6])
+        ->assertJsonPath('1.id', 2)
+        ->assertJsonPath('1.monthDay', 26);
+
+    $this->patchJson('/api/v1/users/'.$peckUser->gaijin_id.'/context/0', [
+        'token' => $apiToken,
+        'comment' => 'Speaks occasionally, but prefers typing',
+    ])->assertOk()
+        ->assertJsonPath('id', 0)
+        ->assertJsonPath('comment', 'Speaks occasionally, but prefers typing');
+
+    $this->deleteJson('/api/v1/users/'.$peckUser->gaijin_id.'/context/1', [
+        'token' => $apiToken,
+    ])->assertNoContent();
+
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/context', [
+        'token' => $apiToken,
+        'type' => PeckUserContext::TYPE_ONCE_ABSENCE,
+        'from' => '2026-06-01',
+        'to' => '2026-06-15',
+    ])->assertCreated()
+        ->assertJsonPath('0.id', 1);
+
+    expect(
+        PeckUserContext::query()
+            ->where('user_id', $peckUser->gaijin_id)
+            ->orderBy('context_id')
+            ->pluck('context_id')
+            ->all()
+    )->toBe([0, 1, 2]);
 });
 
 test('api users leave info endpoints return 404 when user is missing', function () {

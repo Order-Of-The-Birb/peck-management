@@ -6,6 +6,7 @@ use Database\Factories\PeckUserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PeckUser extends Model
@@ -99,6 +100,11 @@ class PeckUser extends Model
     public function leaveInfo(): HasOne
     {
         return $this->hasOne(PeckLeaveInfo::class, 'user_id', 'gaijin_id');
+    }
+
+    public function contexts(): HasMany
+    {
+        return $this->hasMany(PeckUserContext::class, 'user_id', 'gaijin_id');
     }
 
     public static function resolvePersistedStatus(string $status, mixed $discordId): string

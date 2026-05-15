@@ -21,6 +21,9 @@
                     <flux:sidebar.item icon="users" :href="route('dashboard.alts')" :current="request()->routeIs('dashboard.alts')" wire:navigate>
                         {{ __('Alts') }}
                     </flux:sidebar.item>
+                    <flux:sidebar.item icon="document-text" :href="route('dashboard.context')" :current="request()->routeIs('dashboard.context')" wire:navigate>
+                        {{ __('Context') }}
+                    </flux:sidebar.item>
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 

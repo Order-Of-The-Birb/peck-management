@@ -266,6 +266,45 @@
             </section>
         @endif
 
+        @if ($this->isContextSection())
+            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                <div class="flex w-full flex-row items-end gap-5">
+                    <div>
+                        <flux:heading size="xl">{{ __('Context') }}</flux:heading>
+                    </div>
+
+                    <div class="ml-auto w-xl">
+                        <flux:input
+                            wire:model.live.debounce.300ms="contextSearch"
+                            :placeholder="__('Search by username, Gaijin ID, or Discord ID')"
+                        />
+                    </div>
+                </div>
+
+                <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    @forelse ($contextUserCards as $contextUserCard)
+                        <article wire:key="context-user-card-{{ $contextUserCard->gaijin_id }}" class="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/40">
+                            <flux:heading size="md">{{ $contextUserCard->username }}</flux:heading>
+
+                            <div class="mt-4">
+                                <flux:button type="button" variant="ghost" wire:click="openContextModal({{ $contextUserCard->gaijin_id }})" class="w-full justify-center">
+                                    {{ __('Edit') }}
+                                </flux:button>
+                            </div>
+                        </article>
+                    @empty
+                        <div class="col-span-full rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                            {{ __('No users found.') }}
+                        </div>
+                    @endforelse
+                </div>
+
+                <div class="mt-4">
+                    {{ $contextUserCards?->links() }}
+                </div>
+            </section>
+        @endif
+
         @if ($this->isUsersSection())
             <flux:modal wire:model="showFilterModal" class="max-w-2xl">
                 <form wire:submit="applyFilters" class="space-y-6">
@@ -625,6 +664,147 @@
                         </flux:button>
                     </div>
                 </form>
+            </flux:modal>
+        @endif
+
+        @if ($this->isContextSection())
+            <flux:modal wire:model="showContextModal" class="max-w-3xl">
+                @if ($selectedContextGaijinId !== null)
+                    <div class="space-y-6">
+                        <div>
+                            <flux:heading size="lg">{{ __('Edit user contexts') }}</flux:heading>
+                            <flux:subheading>
+                                {{ $selectedContextUsername }} ({{ $selectedContextGaijinId }})
+                            </flux:subheading>
+                        </div>
+
+                        <flux:field variant="inline">
+                            <flux:checkbox wire:model.live="contextShowExpiredAbsences" />
+                            <flux:label>{{ __('Show old absence entries') }}</flux:label>
+                        </flux:field>
+
+                        <div class="space-y-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
+                            <div class="space-y-2">
+                                @forelse ($selectedContextEntries as $selectedContextEntry)
+                                    <div wire:key="selected-context-entry-{{ $selectedContextEntry->context_id }}" class="group flex items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
+                                        @if ($this->canEdit())
+                                            <button
+                                                type="button"
+                                                wire:click="removeContext({{ $selectedContextEntry->context_id }})"
+                                                class="rounded-md p-2 text-neutral-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-red-900/20 dark:hover:text-red-300"
+                                                aria-label="{{ __('Remove context') }}"
+                                            >
+                                                <flux:icon.trash class="size-4" />
+                                            </button>
+                                        @endif
+
+                                        <flux:text class="min-w-0 flex-1 truncate">
+                                            {{ $this->contextDisplayText($selectedContextEntry) }}
+                                        </flux:text>
+                                    </div>
+                                @empty
+                                    <div class="rounded-lg border border-dashed border-neutral-300 px-3 py-4 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                                        {{ __('No contexts shown.') }}
+                                    </div>
+                                @endforelse
+                            </div>
+
+                            @if ($this->canEdit() && ! $showAddContextForm)
+                                <flux:button type="button" variant="ghost" wire:click="openAddContextForm" class="w-full justify-center rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700">
+                                    {{ __('+ Add') }}
+                                </flux:button>
+                            @endif
+                        </div>
+
+                        @if ($this->canEdit() && $showAddContextForm)
+                            <form wire:submit="addContext" class="space-y-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
+                                <flux:heading size="sm">{{ __('Add Context') }}</flux:heading>
+
+                                <flux:select wire:model.live="contextForm.type" :label="__('Type')" required>
+                                    <option value="{{ \App\Models\PeckUserContext::TYPE_MISC }}">{{ __('Miscellaneous') }}</option>
+                                    <option value="{{ \App\Models\PeckUserContext::TYPE_ONCE_ABSENCE }}">{{ __('One-time absence') }}</option>
+                                    <option value="{{ \App\Models\PeckUserContext::TYPE_RECURRING_ABSENCE }}">{{ __('Recurring absence') }}</option>
+                                </flux:select>
+
+                                @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_MISC)
+                                    <flux:textarea
+                                        wire:model="contextForm.comment"
+                                        :label="__('Comment')"
+                                        required
+                                    />
+                                @endif
+
+                                @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_ONCE_ABSENCE)
+                                    <div class="grid gap-4 md:grid-cols-2">
+                                        <flux:input
+                                            wire:model="contextForm.from"
+                                            :label="__('From')"
+                                            type="date"
+                                            required
+                                        />
+
+                                        <flux:input
+                                            wire:model="contextForm.to"
+                                            :label="__('To')"
+                                            type="date"
+                                            required
+                                        />
+                                    </div>
+                                @endif
+
+                                @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_RECURRING_ABSENCE)
+                                    <div class="space-y-4">
+                                        <div>
+                                            <flux:label>{{ __('Weekdays') }}</flux:label>
+                                            <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                                @foreach ([0 => 'Mon', 1 => 'Tue', 2 => 'Wed', 3 => 'Thu', 4 => 'Fri', 5 => 'Sat', 6 => 'Sun'] as $weekdayValue => $weekdayLabel)
+                                                    <label class="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
+                                                        <input type="checkbox" wire:model="contextForm.weekdays" value="{{ $weekdayValue }}" class="rounded border-neutral-300 text-blue-600 focus:ring-blue-500 dark:border-neutral-600 dark:bg-neutral-900" />
+                                                        <span>{{ $weekdayLabel }}</span>
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                            <flux:error name="contextForm.weekdays" />
+                                        </div>
+
+                                        <flux:input
+                                            wire:model="contextForm.monthDay"
+                                            :label="__('Month day')"
+                                            type="number"
+                                            inputmode="numeric"
+                                            min="1"
+                                            max="31"
+                                        />
+                                    </div>
+                                @endif
+
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <x-action-message on="peck-context-added" class="text-sm text-green-600 dark:text-green-400">
+                                        {{ __('Added.') }}
+                                    </x-action-message>
+
+                                    <div class="ml-auto flex items-center gap-3">
+                                        <flux:button type="button" variant="ghost" wire:click="closeAddContextForm">
+                                            {{ __('Cancel') }}
+                                        </flux:button>
+
+                                        <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="addContext">
+                                            {{ __('Add') }}
+                                        </flux:button>
+                                    </div>
+                                </div>
+                            </form>
+                        @endif
+
+                        <div class="flex items-center justify-end gap-3">
+                            <flux:modal.close>
+                                <flux:button type="button" variant="ghost" wire:click="closeContextModal">
+                                    {{ __('Close') }}
+                                </flux:button>
+                            </flux:modal.close>
+                        </div>
+                    </div>
+                @endif
             </flux:modal>
         @endif
 

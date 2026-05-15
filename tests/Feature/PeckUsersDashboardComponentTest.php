@@ -5,6 +5,7 @@ use App\Models\Officer;
 use App\Models\PeckAlt;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
+use App\Models\PeckUserContext;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -546,4 +547,89 @@ test('set master action reassigns ownership to selected slave and keeps all prev
             ->where('owner_id', $originalMaster->gaijin_id)
             ->exists()
     )->toBeFalse();
+});
+
+test('context section lists users and hides expired one-time absences until enabled', function () {
+    $admin = User::query()->create([
+        'name' => 'Context Viewer',
+        'email' => 'context-viewer@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 994001,
+        'username' => 'context_card_target',
+    ]);
+
+    PeckUserContext::factory()->create([
+        'user_id' => $peckUser->gaijin_id,
+        'context_id' => 0,
+        'type' => PeckUserContext::TYPE_ONCE_ABSENCE,
+        'from_date' => '2000-01-01',
+        'to_date' => '2000-01-15',
+        'comment' => null,
+    ]);
+
+    PeckUserContext::factory()->create([
+        'user_id' => $peckUser->gaijin_id,
+        'context_id' => 1,
+        'type' => PeckUserContext::TYPE_MISC,
+        'comment' => 'Max rank: 14.7',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'context'])
+        ->assertSee($peckUser->username)
+        ->call('openContextModal', $peckUser->gaijin_id)
+        ->assertSee('misc: Max rank: 14.7')
+        ->assertDontSee('absence: 2000.01.01 - 2000.01.15')
+        ->set('contextShowExpiredAbsences', true)
+        ->assertSee('absence: 2000.01.01 - 2000.01.15');
+});
+
+test('authorized users can add split recurring contexts and remove context entries', function () {
+    $admin = User::query()->create([
+        'name' => 'Context Editor',
+        'email' => 'context-editor@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $peckUser = PeckUser::factory()->create([
+        'gaijin_id' => 994101,
+        'username' => 'context_edit_target',
+    ]);
+
+    $this->actingAs($admin);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'context'])
+        ->call('openContextModal', $peckUser->gaijin_id)
+        ->call('openAddContextForm')
+        ->set('contextForm.type', PeckUserContext::TYPE_RECURRING_ABSENCE)
+        ->set('contextForm.weekdays', [0, 3])
+        ->set('contextForm.monthDay', '26')
+        ->call('addContext')
+        ->assertHasNoErrors()
+        ->assertDispatched('peck-context-added')
+        ->assertSee('absence: every Mon,Thu')
+        ->assertSee('absence: every month on the 26th')
+        ->call('removeContext', 0)
+        ->assertDontSee('absence: every Mon,Thu');
+
+    $remainingContext = PeckUserContext::query()
+        ->where('user_id', $peckUser->gaijin_id)
+        ->first();
+
+    expect($remainingContext?->context_id)->toBe(1)
+        ->and($remainingContext?->month_day)->toBe(26);
 });

@@ -6,6 +6,7 @@ use App\Models\Officer;
 use App\Models\PeckAlt;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
+use App\Models\PeckUserContext;
 use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,6 +39,8 @@ class PeckUsersDashboard extends Component
 
     public string $altSearch = '';
 
+    public string $contextSearch = '';
+
     public bool $showMasterEditModal = false;
 
     public bool $showAddSlaveModal = false;
@@ -56,6 +59,28 @@ class PeckUsersDashboard extends Component
     public bool $showAltSaveError = false;
 
     public string $altSaveErrorMessage = '';
+
+    public bool $showContextModal = false;
+
+    public ?int $selectedContextGaijinId = null;
+
+    public ?string $selectedContextUsername = null;
+
+    public bool $contextShowExpiredAbsences = false;
+
+    public bool $showAddContextForm = false;
+
+    /**
+     * @var array{type:string,from:?string,to:?string,weekdays:list<int>,monthDay:?string,comment:string}
+     */
+    public array $contextForm = [
+        'type' => PeckUserContext::TYPE_MISC,
+        'from' => null,
+        'to' => null,
+        'weekdays' => [],
+        'monthDay' => null,
+        'comment' => '',
+    ];
 
     public bool $showLeaveInfoModal = false;
 
@@ -138,11 +163,12 @@ class PeckUsersDashboard extends Component
         'sortBy' => ['except' => 'gaijin_id'],
         'sortDirection' => ['except' => 'asc'],
         'altSearch' => ['except' => ''],
+        'contextSearch' => ['except' => ''],
     ];
 
     public function mount(string $section = 'users'): void
     {
-        if (in_array($section, ['users', 'leave_info', 'alts'], true)) {
+        if (in_array($section, ['users', 'leave_info', 'alts', 'context'], true)) {
             $this->section = $section;
         }
     }
@@ -155,6 +181,11 @@ class PeckUsersDashboard extends Component
     public function updatingAltSearch(): void
     {
         $this->resetPage('alt-masters-page');
+    }
+
+    public function updatingContextSearch(): void
+    {
+        $this->resetPage('context-users-page');
     }
 
     /**
@@ -371,6 +402,19 @@ class PeckUsersDashboard extends Component
     public function isAltsSection(): bool
     {
         return $this->section === 'alts';
+    }
+
+    public function isContextSection(): bool
+    {
+        return $this->section === 'context';
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function contextTypes(): array
+    {
+        return PeckUserContext::TYPES;
     }
 
     public function availableMasterUsers(): Collection
@@ -751,6 +795,134 @@ class PeckUsersDashboard extends Component
         $this->altSaveErrorMessage = '';
     }
 
+    public function openContextModal(int $gaijinId): void
+    {
+        $peckUser = PeckUser::query()->findOrFail($gaijinId);
+
+        $this->selectedContextGaijinId = $peckUser->gaijin_id;
+        $this->selectedContextUsername = $peckUser->username;
+        $this->contextShowExpiredAbsences = false;
+        $this->showAddContextForm = false;
+        $this->contextForm = $this->blankContextForm();
+        $this->showContextModal = true;
+        $this->resetValidation();
+    }
+
+    public function closeContextModal(): void
+    {
+        $this->showContextModal = false;
+        $this->selectedContextGaijinId = null;
+        $this->selectedContextUsername = null;
+        $this->contextShowExpiredAbsences = false;
+        $this->showAddContextForm = false;
+        $this->contextForm = $this->blankContextForm();
+        $this->resetValidation();
+    }
+
+    public function openAddContextForm(): void
+    {
+        $this->ensureCanEdit();
+
+        if ($this->selectedContextGaijinId === null) {
+            $this->addError('selectedContextGaijinId', __('Select a user before adding context.'));
+
+            return;
+        }
+
+        $this->contextForm = $this->blankContextForm();
+        $this->showAddContextForm = true;
+        $this->resetValidation();
+    }
+
+    public function closeAddContextForm(): void
+    {
+        $this->ensureCanEdit();
+
+        $this->showAddContextForm = false;
+        $this->contextForm = $this->blankContextForm();
+        $this->resetValidation();
+    }
+
+    public function addContext(): void
+    {
+        $this->ensureCanEdit();
+
+        if ($this->selectedContextGaijinId === null) {
+            $this->addError('selectedContextGaijinId', __('Select a user before adding context.'));
+
+            return;
+        }
+
+        $validated = $this->validate($this->contextRules());
+        $contextForm = $validated['contextForm'];
+
+        if ($contextForm['type'] === PeckUserContext::TYPE_RECURRING_ABSENCE) {
+            $hasWeekdays = $contextForm['weekdays'] !== [];
+            $hasMonthDay = filled($contextForm['monthDay']);
+
+            if (! $hasWeekdays && ! $hasMonthDay) {
+                $this->addError('contextForm.weekdays', __('A recurring absence requires weekdays or a month day.'));
+
+                return;
+            }
+        }
+
+        DB::transaction(function () use ($contextForm): void {
+            foreach ($this->contextPayloads($contextForm) as $payload) {
+                PeckUserContext::query()->create([
+                    'user_id' => $this->selectedContextGaijinId,
+                    'context_id' => PeckUserContext::lowestAvailableContextId((int) $this->selectedContextGaijinId),
+                    ...$payload,
+                ]);
+            }
+        });
+
+        $this->dispatch('peck-context-added');
+        $this->showAddContextForm = false;
+        $this->contextForm = $this->blankContextForm();
+        $this->resetValidation();
+    }
+
+    public function removeContext(int $contextId): void
+    {
+        $this->ensureCanEdit();
+
+        if ($this->selectedContextGaijinId === null) {
+            return;
+        }
+
+        PeckUserContext::query()
+            ->where('user_id', $this->selectedContextGaijinId)
+            ->where('context_id', $contextId)
+            ->delete();
+    }
+
+    public function contextDisplayText(PeckUserContext $context): string
+    {
+        if ($context->type === PeckUserContext::TYPE_MISC) {
+            return __('misc: :comment', ['comment' => $context->comment]);
+        }
+
+        if ($context->type === PeckUserContext::TYPE_ONCE_ABSENCE) {
+            return __('absence: :from - :to', [
+                'from' => $context->from_date?->format('Y.m.d') ?? '—',
+                'to' => $context->to_date?->format('Y.m.d') ?? '—',
+            ]);
+        }
+
+        if (is_array($context->weekdays)) {
+            $weekdayNames = collect($context->weekdays)
+                ->map(fn (mixed $weekday): string => $this->weekdayName((int) $weekday))
+                ->implode(',');
+
+            return __('absence: every :weekdays', ['weekdays' => $weekdayNames]);
+        }
+
+        return __('absence: every month on the :day', [
+            'day' => $this->ordinal((int) $context->month_day),
+        ]);
+    }
+
     public function selectUser(int $gaijinId): void
     {
         $this->ensureCanEdit();
@@ -947,6 +1119,124 @@ class PeckUsersDashboard extends Component
     }
 
     /**
+     * @return array{type:string,from:?string,to:?string,weekdays:list<int>,monthDay:?string,comment:string}
+     */
+    protected function blankContextForm(): array
+    {
+        return [
+            'type' => PeckUserContext::TYPE_MISC,
+            'from' => null,
+            'to' => null,
+            'weekdays' => [],
+            'monthDay' => null,
+            'comment' => '',
+        ];
+    }
+
+    /**
+     * @return array<string, list<mixed>>
+     */
+    protected function contextRules(): array
+    {
+        return [
+            'contextForm.type' => [
+                'required',
+                'string',
+                Rule::in($this->contextTypes()),
+            ],
+            'contextForm.from' => [
+                'required_if:contextForm.type,'.PeckUserContext::TYPE_ONCE_ABSENCE,
+                'nullable',
+                'date_format:Y-m-d',
+            ],
+            'contextForm.to' => [
+                'required_if:contextForm.type,'.PeckUserContext::TYPE_ONCE_ABSENCE,
+                'nullable',
+                'date_format:Y-m-d',
+                'after_or_equal:contextForm.from',
+            ],
+            'contextForm.weekdays' => [
+                'array',
+            ],
+            'contextForm.weekdays.*' => [
+                'integer',
+                'between:0,6',
+                'distinct',
+            ],
+            'contextForm.monthDay' => [
+                'nullable',
+                'integer',
+                'between:1,31',
+            ],
+            'contextForm.comment' => [
+                'required_if:contextForm.type,'.PeckUserContext::TYPE_MISC,
+                'string',
+                'max:1000',
+            ],
+        ];
+    }
+
+    /**
+     * @param  array{type:string,from:?string,to:?string,weekdays:list<int>,monthDay:?string,comment:string}  $contextForm
+     * @return list<array<string, mixed>>
+     */
+    protected function contextPayloads(array $contextForm): array
+    {
+        if ($contextForm['type'] === PeckUserContext::TYPE_ONCE_ABSENCE) {
+            return [[
+                'type' => PeckUserContext::TYPE_ONCE_ABSENCE,
+                'from_date' => $contextForm['from'],
+                'to_date' => $contextForm['to'],
+                'weekdays' => null,
+                'month_day' => null,
+                'comment' => null,
+            ]];
+        }
+
+        if ($contextForm['type'] === PeckUserContext::TYPE_MISC) {
+            return [[
+                'type' => PeckUserContext::TYPE_MISC,
+                'from_date' => null,
+                'to_date' => null,
+                'weekdays' => null,
+                'month_day' => null,
+                'comment' => $contextForm['comment'],
+            ]];
+        }
+
+        $payloads = [];
+
+        if ($contextForm['weekdays'] !== []) {
+            $payloads[] = [
+                'type' => PeckUserContext::TYPE_RECURRING_ABSENCE,
+                'from_date' => null,
+                'to_date' => null,
+                'weekdays' => collect($contextForm['weekdays'])
+                    ->map(fn (mixed $weekday): int => (int) $weekday)
+                    ->unique()
+                    ->sort()
+                    ->values()
+                    ->all(),
+                'month_day' => null,
+                'comment' => null,
+            ];
+        }
+
+        if (filled($contextForm['monthDay'])) {
+            $payloads[] = [
+                'type' => PeckUserContext::TYPE_RECURRING_ABSENCE,
+                'from_date' => null,
+                'to_date' => null,
+                'weekdays' => null,
+                'month_day' => (int) $contextForm['monthDay'],
+                'comment' => null,
+            ];
+        }
+
+        return $payloads;
+    }
+
+    /**
      * @return array<string, list<mixed>>
      */
     protected function rules(): array
@@ -1107,6 +1397,8 @@ class PeckUsersDashboard extends Component
         $shownUsers = null;
         $leaveInfoUsers = null;
         $altMasterCards = null;
+        $contextUserCards = null;
+        $selectedContextEntries = collect();
         $editingMasterSlaveUsers = collect();
 
         if ($this->isUsersSection()) {
@@ -1191,16 +1483,45 @@ class PeckUsersDashboard extends Component
             }
         }
 
+        if ($this->isContextSection()) {
+            $trimmedContextSearch = trim($this->contextSearch);
+
+            $contextUserCards = PeckUser::query()
+                ->when($trimmedContextSearch !== '', function (Builder $query) use ($trimmedContextSearch): void {
+                    $query->where(function (Builder $innerQuery) use ($trimmedContextSearch): void {
+                        $innerQuery
+                            ->where('gaijin_id', 'like', '%'.$trimmedContextSearch.'%')
+                            ->orWhere('username', 'like', '%'.$trimmedContextSearch.'%')
+                            ->orWhere('discord_id', 'like', '%'.$trimmedContextSearch.'%');
+                    });
+                })
+                ->orderBy('username')
+                ->orderBy('gaijin_id')
+                ->paginate(12, ['*'], 'context-users-page');
+
+            if ($this->selectedContextGaijinId !== null) {
+                $selectedContextEntries = PeckUserContext::query()
+                    ->where('user_id', $this->selectedContextGaijinId)
+                    ->orderBy('context_id')
+                    ->get()
+                    ->reject(fn (PeckUserContext $context): bool => ! $this->contextShowExpiredAbsences && $context->isExpiredOnceAbsence())
+                    ->values();
+            }
+        }
+
         return view('livewire.peck-users-dashboard', [
             'shownUsers' => $shownUsers,
             'leaveInfoUsers' => $leaveInfoUsers,
             'altMasterCards' => $altMasterCards,
+            'contextUserCards' => $contextUserCards,
+            'selectedContextEntries' => $selectedContextEntries,
             'editingMasterSlaveUsers' => $editingMasterSlaveUsers,
             'editableStatuses' => $this->editableStatuses(),
             'filterableStatuses' => $this->filterableStatuses(),
             'activeFilterCount' => $this->activeFilterCount(),
             'initiatorOptions' => $initiatorOptions,
             'leaveInfoTypes' => $this->leaveInfoTypes(),
+            'contextTypes' => $this->contextTypes(),
         ]);
     }
 
@@ -1220,5 +1541,32 @@ class PeckUsersDashboard extends Component
         }
 
         return (int) $value;
+    }
+
+    protected function weekdayName(int $weekday): string
+    {
+        return [
+            0 => 'Mon',
+            1 => 'Tue',
+            2 => 'Wed',
+            3 => 'Thu',
+            4 => 'Fri',
+            5 => 'Sat',
+            6 => 'Sun',
+        ][$weekday] ?? (string) $weekday;
+    }
+
+    protected function ordinal(int $number): string
+    {
+        if (in_array($number % 100, [11, 12, 13], true)) {
+            return $number.'th';
+        }
+
+        return $number.match ($number % 10) {
+            1 => 'st',
+            2 => 'nd',
+            3 => 'rd',
+            default => 'th',
+        };
     }
 }

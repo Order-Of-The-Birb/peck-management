@@ -24,4 +24,10 @@ Route::get('/alts', function () {
     ]);
 })->middleware('auth')->name('dashboard.alts');
 
+Route::get('/context', function () {
+    return view('dashboard', [
+        'dashboardSection' => 'context',
+    ]);
+})->middleware('auth')->name('dashboard.context');
+
 require __DIR__.'/settings.php';
