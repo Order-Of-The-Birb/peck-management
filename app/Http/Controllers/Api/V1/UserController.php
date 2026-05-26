@@ -36,6 +36,7 @@ class UserController extends Controller
                 'tz',
                 'joindate',
                 'initiator',
+                'sqb_part',
             ])],
             'sort_direction' => ['nullable', 'string', Rule::in(['asc', 'desc'])],
             'per_page' => ['nullable', 'integer', 'between:1,100'],

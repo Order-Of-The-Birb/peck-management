@@ -63,6 +63,10 @@ class UpdateApiUserRequest extends FormRequest
                     }
                 },
             ],
+            'sqb_part' => [
+                'sometimes',
+                'boolean',
+            ],
         ];
     }
 

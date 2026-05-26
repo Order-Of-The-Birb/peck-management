@@ -1,4 +1,14 @@
 <div>
+    <style>
+        input[type=number]::-webkit-outer-spin-button,
+        input[type=number]::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+    </style>
     <div class="flex h-full w-full flex-1 flex-col gap-6">
         @if ($this->isUsersSection())
             <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
@@ -93,6 +103,14 @@
                                         @endif
                                     </button>
                                 </th>
+                                <th class="px-3 py-2">
+                                    <button type="button" wire:click="sort('sqb_part')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
+                                        {{ __('SQB Part') }}
+                                        @if ($this->isSortedBy('sqb_part'))
+                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
+                                        @endif
+                                    </button>
+                                </th>
                                 @if ($this->canEdit())
                                     <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
                                 @endif
@@ -111,6 +129,7 @@
                                     <td class="px-3 py-2">{{ $peckUser->tz ?? '—' }}</td>
                                     <td class="px-3 py-2">{{ $peckUser->joindate?->format('Y-m-d') ?? '—' }}</td>
                                     <td class="px-3 py-2">{{ $peckUser->initiatorUser?->username ?? '—' }}</td>
+                                    <td class="px-3 py-2">{{ $peckUser->sqb_part ? __('Yes') : __('No') }}</td>
                                     @if ($this->canEdit())
                                         <td class="px-3 py-2 text-right">
                                             <flux:button
@@ -125,7 +144,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="{{ $this->canEdit() ? 8 : 7 }}" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
+                                    <td colspan="{{ $this->canEdit() ? 9 : 8 }}" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
                                         {{ __('No users found.') }}
                                     </td>
                                 </tr>
@@ -449,6 +468,13 @@
                                         </option>
                                     @endforeach
                                 </flux:select>
+
+                                <div class="flex w-full">
+                                    <label class="mt-1 flex flex-1 items-center justify-center gap-2">
+                                        <flux:checkbox wire:model="form.sqb_part" />
+                                        <span class="text-sm">{{ __('Expected SQB Participation') }}</span>
+                                    </label>
+                                </div>
                             </div>
 
                             <div class="flex flex-wrap items-center gap-3">
@@ -534,6 +560,14 @@
                                     </option>
                                 @endforeach
                             </flux:select>
+
+                            <div class="w-full">
+                                <flux:label>{{ __('SQB Participation') }}</flux:label>
+                                <label class="mt-1 flex items-center gap-2">
+                                    <flux:checkbox wire:model="newUserForm.sqb_part" />
+                                    <span class="text-sm">{{ __('Expected Participation') }}</span>
+                                </label>
+                            </div>
                         </div>
 
                         <div class="flex flex-wrap items-center justify-end gap-3">

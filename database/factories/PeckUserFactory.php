@@ -19,6 +19,7 @@ class PeckUserFactory extends Factory
             'status' => fake()->randomElement(PeckUser::STATUSES),
             'joindate' => fake()->optional()->dateTimeBetween('-2 years', 'now'),
             'initiator' => null,
+            'sqb_part' => fake()->boolean(),
         ];
     }
 }

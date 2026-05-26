@@ -130,7 +130,7 @@ class PeckUsersDashboard extends Component
     ];
 
     /**
-     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
+     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string,sqb_part:bool}
      */
     public array $form = [
         'gaijin_id' => null,
@@ -140,10 +140,11 @@ class PeckUsersDashboard extends Component
         'status' => 'member',
         'joindate' => null,
         'initiator' => null,
+        'sqb_part' => false,
     ];
 
     /**
-     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
+     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string,sqb_part:bool}
      */
     public array $newUserForm = [
         'gaijin_id' => null,
@@ -153,6 +154,7 @@ class PeckUsersDashboard extends Component
         'status' => 'member',
         'joindate' => null,
         'initiator' => null,
+        'sqb_part' => false,
     ];
 
     /**
@@ -315,6 +317,7 @@ class PeckUsersDashboard extends Component
             'tz',
             'joindate',
             'initiator',
+            'sqb_part',
         ];
     }
 
@@ -355,6 +358,7 @@ class PeckUsersDashboard extends Component
             'status' => $validated['newUserForm']['status'],
             'joindate' => $validated['newUserForm']['joindate'],
             'initiator' => $this->nullableInteger($validated['newUserForm']['initiator']),
+            'sqb_part' => $validated['newUserForm']['sqb_part'],
         ]);
 
         $this->dispatch('peck-user-created');
@@ -938,6 +942,7 @@ class PeckUsersDashboard extends Component
             'status' => $peckUser->status,
             'joindate' => $peckUser->joindate?->format('Y-m-d'),
             'initiator' => $this->nullableString($peckUser->initiator),
+            'sqb_part' => (bool) $peckUser->sqb_part,
         ];
 
         $this->resetValidation();
@@ -1077,6 +1082,7 @@ class PeckUsersDashboard extends Component
             'status' => $updatedStatus,
             'joindate' => $validated['form']['joindate'],
             'initiator' => $this->nullableInteger($validated['form']['initiator']),
+            'sqb_part' => $validated['form']['sqb_part'],
         ]);
         $peckUser->save();
 
@@ -1103,7 +1109,7 @@ class PeckUsersDashboard extends Component
     }
 
     /**
-     * @return array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
+     * @return array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string,sqb_part:bool}
      */
     protected function blankUserForm(): array
     {
@@ -1115,6 +1121,7 @@ class PeckUsersDashboard extends Component
             'status' => 'member',
             'joindate' => null,
             'initiator' => null,
+            'sqb_part' => false,
         ];
     }
 
@@ -1284,6 +1291,9 @@ class PeckUsersDashboard extends Component
                     }
                 },
             ],
+            'form.sqb_part' => [
+                'boolean',
+            ],
         ];
     }
 
@@ -1371,6 +1381,9 @@ class PeckUsersDashboard extends Component
                         $fail(__('The initiator cannot be the same as the selected peck user.'));
                     }
                 },
+            ],
+            'newUserForm.sqb_part' => [
+                'boolean',
             ],
         ];
     }

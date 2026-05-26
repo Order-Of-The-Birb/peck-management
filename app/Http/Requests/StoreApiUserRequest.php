@@ -61,6 +61,9 @@ class StoreApiUserRequest extends FormRequest
                     }
                 },
             ],
+            'sqb_part' => [
+                'boolean',
+            ],
         ];
     }
 

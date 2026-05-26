@@ -76,10 +76,10 @@ Allowed values:
 Context IDs are per-user IDs starting from `0`. New entries use the lowest unassigned ID for that user.  
 
 ## Cache Invalidation  
-The application queues a background notification to a local Discord bot cache invalidation endpoint (`http://127.0.0.1:5000/invalidate-cache`) when:  
-- A `peck_users` record is created  
-- A `peck_users` record is updated  
-- A `peck_users` record is deleted  
+The application queues a background notification to a local Discord bot cache invalidation endpoint (`http://127.0.0.1:5000/invalidate-cache`) when a `peck_users` record is  
+- created  
+- updated  
+- deleted  
 
 The outgoing request uses:  
 - Method: `POST`  

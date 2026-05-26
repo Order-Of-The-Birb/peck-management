@@ -49,6 +49,7 @@ class PeckUser extends Model
         'status',
         'joindate',
         'initiator',
+        'sqb_part',
     ];
 
     /**
@@ -64,6 +65,7 @@ class PeckUser extends Model
             'tz' => 'integer',
             'joindate' => 'datetime',
             'initiator' => 'integer',
+            'sqb_part' => 'boolean',
         ];
     }
 
