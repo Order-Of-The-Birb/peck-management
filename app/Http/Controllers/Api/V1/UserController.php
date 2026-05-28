@@ -65,9 +65,18 @@ class UserController extends Controller
                 $query->where('status', $validated['status']);
             })
             ->when(array_key_exists('tz', $validated) && $validated['tz'] !== null, function ($query) use ($validated): void {
-                $query->where('tz', $validated['tz']);
+                $query->whereHas('userData', function ($q) use ($validated): void {
+                    $q->where('timezone', $validated['tz']);
+                });
             })
-            ->orderBy($sortBy, $sortDirection)
+            ->when(in_array($sortBy, ['tz', 'sqb_part'], true), function ($query) use ($sortBy, $sortDirection): void {
+                $column = $sortBy === 'tz' ? 'timezone' : 'sqb_part';
+                $query->orderByRaw(
+                    '(SELECT '.$column.' FROM peck_user_data WHERE peck_user_data.discord_id = peck_users.discord_id) '.$sortDirection,
+                );
+            }, function ($query) use ($sortBy, $sortDirection): void {
+                $query->orderBy($sortBy, $sortDirection);
+            })
             ->orderBy('gaijin_id')
             ->forPage($page, $perPage)
             ->get();

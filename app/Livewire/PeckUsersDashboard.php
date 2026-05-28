@@ -1431,7 +1431,9 @@ class PeckUsersDashboard extends Component
                     $query->where('status', $this->filters['status']);
                 })
                 ->when($this->filters['tz'] !== null, function (Builder $query): void {
-                    $query->where('tz', $this->filters['tz']);
+                    $query->whereHas('userData', function (Builder $q): void {
+                        $q->where('timezone', $this->filters['tz']);
+                    });
                 })
                 ->when($this->filters['joined_after'] !== null, function (Builder $query): void {
                     $query->whereDate('joindate', '>=', $this->filters['joined_after']);
@@ -1439,7 +1441,14 @@ class PeckUsersDashboard extends Component
                 ->when($this->filters['joined_before'] !== null, function (Builder $query): void {
                     $query->whereDate('joindate', '<=', $this->filters['joined_before']);
                 })
-                ->orderBy($sortBy, $sortDirection)
+                ->when(in_array($sortBy, ['tz', 'sqb_part'], true), function (Builder $query) use ($sortBy, $sortDirection): void {
+                    $column = $sortBy === 'tz' ? 'timezone' : 'sqb_part';
+                    $query->orderByRaw(
+                        '(SELECT '.$column.' FROM peck_user_data WHERE peck_user_data.discord_id = peck_users.discord_id) '.$sortDirection,
+                    );
+                }, function (Builder $query) use ($sortBy, $sortDirection): void {
+                    $query->orderBy($sortBy, $sortDirection);
+                })
                 ->orderBy('gaijin_id')
                 ->paginate(15);
         }

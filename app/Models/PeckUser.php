@@ -62,12 +62,24 @@ class PeckUser extends Model
         return [
             'gaijin_id' => 'integer',
             'discord_id' => 'integer',
-            'tz' => 'integer',
             'joindate' => 'datetime',
             'initiator' => 'integer',
-            'sqb_part' => 'boolean',
         ];
     }
+
+    /**
+     * The relationships that should always be loaded.
+     *
+     * @var list<string>
+     */
+    protected $with = ['userData'];
+
+    /**
+     * Pending user data values to persist after save.
+     *
+     * @var array<string, mixed>
+     */
+    private array $pendingUserData = [];
 
     protected static function booted(): void
     {
@@ -76,12 +88,68 @@ class PeckUser extends Model
                 status: (string) $peckUser->status,
                 discordId: $peckUser->discord_id,
             );
+
+            if ($peckUser->isDirty('discord_id') && $peckUser->discord_id !== null) {
+                PeckUserData::firstOrCreate(
+                    ['discord_id' => $peckUser->discord_id],
+                    [
+                        'sqb_part' => $peckUser->pendingUserData['sqb_part'] ?? null,
+                        'timezone' => $peckUser->pendingUserData['timezone'] ?? null,
+                    ],
+                );
+            }
+        });
+
+        static::creating(function (self $peckUser): void {
+            if ($peckUser->discord_id !== null) {
+                PeckUserData::firstOrCreate(
+                    ['discord_id' => $peckUser->discord_id],
+                    [
+                        'sqb_part' => $peckUser->pendingUserData['sqb_part'] ?? null,
+                        'timezone' => $peckUser->pendingUserData['timezone'] ?? null,
+                    ],
+                );
+            }
+        });
+
+        static::saved(function (self $peckUser): void {
+            if ($peckUser->discord_id !== null && $peckUser->pendingUserData !== []) {
+                PeckUserData::where('discord_id', $peckUser->discord_id)
+                    ->update($peckUser->pendingUserData);
+                $peckUser->pendingUserData = [];
+                $peckUser->unsetRelation('userData');
+            }
         });
     }
 
     protected static function newFactory(): PeckUserFactory
     {
         return PeckUserFactory::new();
+    }
+
+    public function userData(): BelongsTo
+    {
+        return $this->belongsTo(PeckUserData::class, 'discord_id', 'discord_id');
+    }
+
+    public function getTzAttribute(): ?int
+    {
+        return $this->userData?->timezone;
+    }
+
+    public function setTzAttribute(?int $value): void
+    {
+        $this->pendingUserData['timezone'] = $value;
+    }
+
+    public function getSqbPartAttribute(): ?bool
+    {
+        return $this->userData?->sqb_part;
+    }
+
+    public function setSqbPartAttribute(?bool $value): void
+    {
+        $this->pendingUserData['sqb_part'] = $value;
     }
 
     public function initiatorUser(): BelongsTo
