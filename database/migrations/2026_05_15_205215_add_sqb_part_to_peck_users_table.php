@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('peck_users', function (Blueprint $table) {
-            $table->boolean('sqb_part')->default(false);
+            $table->boolean('sqb_part')->nullable()->default(null);
         });
     }
 

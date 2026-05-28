@@ -129,7 +129,7 @@
                                     <td class="px-3 py-2">{{ $peckUser->tz ?? '—' }}</td>
                                     <td class="px-3 py-2">{{ $peckUser->joindate?->format('Y-m-d') ?? '—' }}</td>
                                     <td class="px-3 py-2">{{ $peckUser->initiatorUser?->username ?? '—' }}</td>
-                                    <td class="px-3 py-2">{{ $peckUser->sqb_part ? __('Yes') : __('No') }}</td>
+                                    <td class="px-3 py-2">{{ is_null($peckUser->sqb_part) ? __('Unknown') : ($peckUser->sqb_part ? __('Yes') : __('No')) }}</td>
                                     @if ($this->canEdit())
                                         <td class="px-3 py-2 text-right">
                                             <flux:button
