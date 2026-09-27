@@ -29,6 +29,7 @@ test('user can link a thunderapi account', function () {
         'https://thunder.example/v1/login' => Http::response([
             'status' => 'OK',
             'token' => 'fresh-token',
+            'user_id' => 111,
         ], 200),
     ]);
 
@@ -42,6 +43,7 @@ test('user can link a thunderapi account', function () {
 
     expect($token)->not->toBeNull()
         ->and($token?->token)->toBe('fresh-token')
+        ->and($token?->gaijin_id)->toBe(111)
         ->and($token?->expires_at)->toBe(now()->addDay()->timestamp);
 });
 
@@ -61,6 +63,7 @@ test('user can link a thunderapi account with two factor authentication', functi
             ->push([
                 'status' => 'OK',
                 'token' => 'two-factor-token',
+                'user_id' => 111,
             ], 200),
         'https://thunder.example/v1/answer-2fa' => Http::response(['status' => 'OK'], 200),
     ]);
@@ -148,6 +151,7 @@ test('each user can only have a single thunderapi token', function () {
         'https://thunder.example/v1/login' => Http::response([
             'status' => 'OK',
             'token' => 'replacement-token',
+            'user_id' => 111,
         ], 200),
     ]);
 

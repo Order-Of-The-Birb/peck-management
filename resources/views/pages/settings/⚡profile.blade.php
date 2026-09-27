@@ -135,7 +135,7 @@ new #[Title('Profile settings')] class extends Component {
             return;
         }
 
-        $this->storeThunderToken($result['token']);
+        $this->storeThunderToken($result['token'], $result['user_id']);
     }
 
     public function submitThunderTwoFactor(): void
@@ -170,7 +170,7 @@ new #[Title('Profile settings')] class extends Component {
             return;
         }
 
-        $this->storeThunderToken($result['token']);
+        $this->storeThunderToken($result['token'], $result['user_id']);
     }
 
     public function cancelTwoFactor(): void
@@ -189,11 +189,11 @@ new #[Title('Profile settings')] class extends Component {
         $this->thunderError = null;
     }
 
-    protected function storeThunderToken(string $token): void
+    protected function storeThunderToken(string $token, int $gaijinId): void
     {
         $user = Auth::user();
 
-        ThunderApiToken::storeForUser($user, $token);
+        ThunderApiToken::storeForUser($user, $token, $gaijinId);
 
         $this->reset('thunderPassword', 'thunderCode');
         $this->twoFactorRequired = false;

@@ -14,6 +14,6 @@ return [
     ],
     'thunderapi_refresh' => [
         'batch_size' => (int) env('THUNDERAPI_REFRESH_BATCH_SIZE', 4),
-        'refresh_after_hours' => (int) env('THUNDERAPI_REFRESH_AFTER_HOURS', 23),
+        'refresh_after_hours' => (int) env('THUNDERAPI_REFRESH_AFTER_HOURS', 1),
     ],
 ];

@@ -33,9 +33,11 @@
                     <flux:sidebar.item icon="clipboard-document" :href="route('dashboard.squadron.applications')" :current="request()->routeIs('dashboard.squadron.applications')" wire:navigate>
                         {{ __('Applications') }}
                     </flux:sidebar.item>
-                    <flux:sidebar.item icon="wrench-screwdriver" :href="route('dashboard.squadron.management')" :current="request()->routeIs('dashboard.squadron.management')" wire:navigate>
-                        {{ __('Management') }}
-                    </flux:sidebar.item>
+                    @if (auth()->user()?->canManageSquadron())
+                        <flux:sidebar.item icon="wrench-screwdriver" :href="route('dashboard.squadron.management')" :current="request()->routeIs('dashboard.squadron.management')" wire:navigate>
+                            {{ __('Management') }}
+                        </flux:sidebar.item>
+                    @endif
                 </flux:sidebar.group>
             </flux:sidebar.nav>
 

@@ -67,8 +67,8 @@ test('squadron id lookup searches squadrons by name and tag', function () {
 
     Livewire::test('pages::settings.admin')
         ->assertSee('Squadron ID Lookup')
-        ->assertSee('123 PECK Order Of The Birb')
-        ->assertSee('456 OTHER Another Squadron');
+        ->assertSeeText('123 PECK Order Of The Birb')
+        ->assertSeeText('456 OTHER Another Squadron');
 
     Http::assertSent(function ($request): bool {
         return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search/')

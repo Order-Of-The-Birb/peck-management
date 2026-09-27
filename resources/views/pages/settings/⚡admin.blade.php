@@ -1275,7 +1275,7 @@ new #[Title('Administration settings')] class extends Component {
                             <div class="max-h-56 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
                                 @forelse ($squadronLookupResults as $squadronLookupResult)
                                     <div wire:key="squadron-lookup-result-{{ $squadronLookupResult['_id'] }}" class="flex items-center justify-between gap-3 px-3 py-2">
-                                        <flux:text>{{ $squadronLookupResult['_id'] }} {{ $squadronLookupResult['tag'] }} {{ $squadronLookupResult['name'] }}</flux:text>
+                                        <flux:text>{{ $squadronLookupResult['_id'] }} <span class="wt-glyphs">{{ $squadronLookupResult['tag'] }}</span> {{ $squadronLookupResult['name'] }}</flux:text>
 
                                         <flux:button type="button" variant="primary" size="sm" wire:click="requestSquadronSelection('{{ $squadronLookupResult['_id'] }}')">
                                             {{ __('Select') }}
@@ -1513,7 +1513,7 @@ new #[Title('Administration settings')] class extends Component {
 
                 <div class="space-y-1 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
                     <flux:text>{{ __('Squadron ID: :id', ['id' => $pendingSquadronSelection['_id'] ?? '—']) }}</flux:text>
-                    <flux:text>{{ __('Tag: :tag', ['tag' => $pendingSquadronSelection['tag'] ?? '—']) }}</flux:text>
+                    <flux:text>{{ __('Tag:') }} <span class="wt-glyphs">{{ $pendingSquadronSelection['tag'] ?? '—' }}</span></flux:text>
                     <flux:text>{{ __('Name: :name', ['name' => $pendingSquadronSelection['name'] ?? '—']) }}</flux:text>
                 </div>
 

@@ -324,31 +324,108 @@
             </section>
         @endif
 
-        @if ($this->isSquadronLogsSection())
-            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-                <div>
-                    <flux:heading size="xl">{{ __('Logs') }}</flux:heading>
-                    <flux:text>{{ __('Squadron logs will appear here.') }}</flux:text>
-                </div>
-            </section>
-        @endif
+        @if ($this->isSquadronSection())
+            @php($squadronBlockReason = $this->squadronBlockReason())
 
-        @if ($this->isSquadronApplicationsSection())
-            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-                <div>
-                    <flux:heading size="xl">{{ __('Applications') }}</flux:heading>
-                    <flux:text>{{ __('Squadron applications will appear here.') }}</flux:text>
+            @if ($squadronBlockReason === 'squadron_id')
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-6 backdrop-blur-sm">
+                    <div class="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                        <flux:heading size="lg">{{ __('Squadron not set up') }}</flux:heading>
+                        <flux:text class="mt-2">{{ __('The Squadron ID is not yet set up. Please contact an administrator.') }}</flux:text>
+                    </div>
                 </div>
-            </section>
-        @endif
+            @elseif ($squadronBlockReason === 'thunder')
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-6 backdrop-blur-sm">
+                    <div class="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                        <flux:heading size="lg">{{ __('ThunderAPI connection required') }}</flux:heading>
+                        <flux:text class="mt-2">{{ __('Connect your ThunderAPI account to access the Squadron pages.') }}</flux:text>
+                        <div class="mt-6 flex justify-center">
+                            <flux:button variant="primary" :href="route('profile.edit')" wire:navigate>
+                                {{ __('Open Settings') }}
+                            </flux:button>
+                        </div>
+                    </div>
+                </div>
+            @elseif ($squadronBlockReason === 'clearance')
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-6 backdrop-blur-sm">
+                    <div class="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                        <flux:heading size="lg">{{ __('Insufficient clearance') }}</flux:heading>
+                        <flux:text class="mt-2">{{ __('You do not have a high enough clearance to access this page.') }}</flux:text>
+                    </div>
+                </div>
+            @else
+                @if ($this->isSquadronLogsSection())
+                    <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                        <div>
+                            <flux:heading size="xl">{{ __('Logs') }}</flux:heading>
+                            <flux:text>{{ __('Recent squadron activity') }}</flux:text>
+                        </div>
 
-        @if ($this->isSquadronManagementSection())
-            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-                <div>
-                    <flux:heading size="xl">{{ __('Management') }}</flux:heading>
-                    <flux:text>{{ __('Squadron management will appear here.') }}</flux:text>
-                </div>
-            </section>
+                        @if ($squadronLogsFailed)
+                            <div class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100" role="alert">
+                                {{ $squadronLogsErrorMessage }}
+                            </div>
+                        @endif
+
+                        <div class="mt-6 space-y-4">
+                            @forelse ($squadronLogs as $squadronLog)
+                                <article wire:key="squadron-log-{{ $loop->index }}" class="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/40">
+                                    <div class="flex items-start justify-between gap-4">
+                                        <div class="min-w-0">
+                                            <flux:heading size="sm">{{ $squadronLog['action_label'] }}</flux:heading>
+                                            @if ($squadronLog['actor'] !== null)
+                                                <flux:text class="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                                                    {{ $squadronLog['actor'] }}
+                                                </flux:text>
+                                            @endif
+                                        </div>
+
+                                        @if ($squadronLog['datetime'] !== null)
+                                            <time datetime="{{ $squadronLog['datetime'] }}" class="shrink-0 text-sm text-neutral-500 dark:text-neutral-400">
+                                                {{ $squadronLog['datetime'] }}
+                                            </time>
+                                        @endif
+                                    </div>
+
+                                    @foreach ($squadronLog['details'] as $squadronLogDetail)
+                                        <flux:text class="mt-2 text-sm text-neutral-600 dark:text-neutral-300">@if ($squadronLogDetail['label'] !== null){{ $squadronLogDetail['label'] }}: @endif@if ($squadronLogDetail['glyphs'])<span class="wt-glyphs">{{ $squadronLogDetail['value'] }}</span>@else{{ $squadronLogDetail['value'] }}@endif</flux:text>
+                                    @endforeach
+                                </article>
+                            @empty
+                                <div class="rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                                    {{ __('No logs found.') }}
+                                </div>
+                            @endforelse
+                        </div>
+
+                        @if ($squadronLogsHasMore)
+                            <div class="mt-6">
+                                <flux:button type="button" variant="ghost" wire:click="loadMoreSquadronLogs" wire:loading.attr="disabled" wire:target="loadMoreSquadronLogs" class="w-full">
+                                    {{ __('Show more') }}
+                                </flux:button>
+                            </div>
+                        @endif
+                    </section>
+                @endif
+
+                @if ($this->isSquadronApplicationsSection())
+                    <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                        <div>
+                            <flux:heading size="xl">{{ __('Applications') }}</flux:heading>
+                            <flux:text>{{ __('Squadron applications will appear here.') }}</flux:text>
+                        </div>
+                    </section>
+                @endif
+
+                @if ($this->isSquadronManagementSection())
+                    <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                        <div>
+                            <flux:heading size="xl">{{ __('Management') }}</flux:heading>
+                            <flux:text>{{ __('Squadron management will appear here.') }}</flux:text>
+                        </div>
+                    </section>
+                @endif
+            @endif
         @endif
 
         @if ($this->isUsersSection())

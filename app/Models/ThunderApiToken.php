@@ -30,6 +30,7 @@ class ThunderApiToken extends Model
     protected $fillable = [
         'user_id',
         'token',
+        'gaijin_id',
         'expires_at',
         'refreshed_at',
     ];
@@ -41,6 +42,7 @@ class ThunderApiToken extends Model
     {
         return [
             'user_id' => 'integer',
+            'gaijin_id' => 'integer',
             'expires_at' => 'integer',
             'refreshed_at' => 'datetime',
         ];
@@ -61,12 +63,18 @@ class ThunderApiToken extends Model
         return $this->expires_at <= now()->timestamp;
     }
 
-    public static function storeForUser(User $user, string $token): self
+    public function isRefreshDue(int $refreshAfterHours): bool
+    {
+        return $this->refreshed_at === null || $this->refreshed_at->lte(now()->subHours(max(1, $refreshAfterHours)));
+    }
+
+    public static function storeForUser(User $user, string $token, ?int $gaijinId = null): self
     {
         return self::query()->updateOrCreate(
             ['user_id' => $user->id],
             [
                 'token' => $token,
+                'gaijin_id' => $gaijinId,
                 'expires_at' => now()->addDay()->timestamp,
                 'refreshed_at' => now(),
             ],

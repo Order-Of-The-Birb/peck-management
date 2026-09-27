@@ -2,11 +2,17 @@
 
 namespace App\Livewire;
 
+use App\Actions\ThunderApi;
+use App\Actions\ThunderApiException;
+use App\Actions\ThunderApiUnauthorizedException;
 use App\Models\Officer;
 use App\Models\PeckAlt;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
+use App\Models\ThunderApiToken;
+use App\Models\User;
+use Carbon\Carbon;
 use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
@@ -40,6 +46,21 @@ class PeckUsersDashboard extends Component
     public string $altSearch = '';
 
     public string $contextSearch = '';
+
+    /**
+     * @var list<array{action_label:string,actor:?string,datetime:?string,details:list<array{label:?string,value:string,glyphs:bool}>}>
+     */
+    public array $squadronLogs = [];
+
+    public ?string $squadronLogsLastLog = null;
+
+    public bool $squadronLogsLoading = false;
+
+    public bool $squadronLogsFailed = false;
+
+    public string $squadronLogsErrorMessage = '';
+
+    public bool $squadronLogsHasMore = false;
 
     public bool $showMasterEditModal = false;
 
@@ -172,6 +193,10 @@ class PeckUsersDashboard extends Component
     {
         if (in_array($section, ['users', 'leave_info', 'alts', 'context', 'squadron_logs', 'squadron_applications', 'squadron_management'], true)) {
             $this->section = $section;
+        }
+
+        if ($this->section === 'squadron_logs') {
+            $this->loadSquadronLogs();
         }
     }
 
@@ -426,6 +451,258 @@ class PeckUsersDashboard extends Component
     public function isSquadronManagementSection(): bool
     {
         return $this->section === 'squadron_management';
+    }
+
+    public function isSquadronSection(): bool
+    {
+        return in_array($this->section, ['squadron_logs', 'squadron_applications', 'squadron_management'], true);
+    }
+
+    public function squadronIdConfigured(): bool
+    {
+        return filled((string) config('peck.squadron_id'));
+    }
+
+    public function thunderLoggedIn(): bool
+    {
+        $token = ThunderApiToken::query()->find(auth()->id());
+
+        return $token instanceof ThunderApiToken && ! $token->isExpired();
+    }
+
+    /**
+     * Returns the reason the Squadron pages are blocked, or null when accessible.
+     */
+    public function squadronBlockReason(): ?string
+    {
+        if (! $this->isSquadronSection()) {
+            return null;
+        }
+
+        if (! $this->squadronIdConfigured()) {
+            return 'squadron_id';
+        }
+
+        if (! $this->thunderLoggedIn()) {
+            return 'thunder';
+        }
+
+        if ($this->section === 'squadron_management' && ! $this->squadronManagementAuthorized()) {
+            return 'clearance';
+        }
+
+        return null;
+    }
+
+    public function squadronManagementAuthorized(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && $user->canManageSquadron();
+    }
+
+    public function loadMoreSquadronLogs(): void
+    {
+        $this->loadSquadronLogs($this->squadronLogsLastLog);
+    }
+
+    protected function resolveSquadronToken(): ?ThunderApiToken
+    {
+        $token = ThunderApiToken::query()->find(auth()->id());
+
+        if (! $token instanceof ThunderApiToken || $token->isExpired()) {
+            return null;
+        }
+
+        $refreshAfterHours = max(1, (int) config('peck.thunderapi_refresh.refresh_after_hours'));
+
+        if (! $token->isRefreshDue($refreshAfterHours)) {
+            return $token;
+        }
+
+        try {
+            $expires = app(ThunderApi::class)->refreshToken($token->token);
+        } catch (ThunderApiException $exception) {
+            return $token;
+        }
+
+        if ($expires === null) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            return null;
+        }
+
+        $token->forceFill([
+            'expires_at' => $expires,
+            'refreshed_at' => now(),
+        ])->save();
+
+        return $token;
+    }
+
+    public function loadSquadronLogs(?string $fromEntry = null): void
+    {
+        if ($this->squadronBlockReason() !== null) {
+            return;
+        }
+
+        $clanId = (string) config('peck.squadron_id');
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null || $clanId === '') {
+            return;
+        }
+
+        $this->squadronLogsLoading = true;
+        $this->squadronLogsFailed = false;
+        $this->squadronLogsErrorMessage = '';
+
+        try {
+            $result = app(ThunderApi::class)->getClanLogs($token->token, $clanId, $fromEntry);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            $this->squadronLogsLoading = false;
+            $this->squadronLogsFailed = true;
+            $this->squadronLogsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->squadronLogsLoading = false;
+            $this->squadronLogsFailed = true;
+            $this->squadronLogsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->squadronLogsLoading = false;
+            $this->squadronLogsFailed = true;
+            $this->squadronLogsErrorMessage = __('ThunderAPI could not be reached.');
+
+            return;
+        }
+
+        $entries = array_map(fn (array $entry): array => $this->normalizeSquadronLog($entry), $result['logs']);
+
+        $this->squadronLogs = array_merge($this->squadronLogs, $entries);
+        $this->squadronLogsLastLog = $result['lastLog'] !== '' ? $result['lastLog'] : null;
+        $this->squadronLogsHasMore = count($result['logs']) > 0;
+        $this->squadronLogsLoading = false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     * @return array{action_label:string,actor:?string,datetime:?string,details:list<array{label:?string,value:string,glyphs:bool}>}
+     */
+    protected function normalizeSquadronLog(array $entry): array
+    {
+        $action = $entry['action'] ?? null;
+        $actionValue = is_array($action) && is_numeric($action['value'] ?? null) ? (int) $action['value'] : null;
+
+        $admin = $entry['admin'] ?? null;
+        $adminNickname = is_array($admin) ? (string) ($admin['nickname'] ?? '') : '';
+        $adminId = is_array($admin) ? ($admin['_id'] ?? null) : null;
+
+        $affected = $entry['affected'] ?? null;
+        $affectedNickname = is_array($affected) ? (string) ($affected['nickname'] ?? '') : '';
+        $affectedId = is_array($affected) ? ($affected['_id'] ?? null) : null;
+
+        $roleChange = $entry['roleChange'] ?? null;
+        $roleOld = is_array($roleChange) ? ($roleChange['old'] ?? null) : null;
+        $roleNew = is_array($roleChange) ? ($roleChange['new'] ?? null) : null;
+
+        $comment = $entry['comment'] ?? null;
+        $info = $entry['info'] ?? null;
+
+        $timestamp = $entry['timestamp'] ?? null;
+
+        $actor = $adminNickname !== ''
+            ? $this->formatSquadronLogUser($adminNickname, $adminId)
+            : null;
+
+        $affectedUser = $affectedNickname !== ''
+            ? $this->formatSquadronLogUser($affectedNickname, $affectedId)
+            : __('Unknown user');
+
+        $isKick = $adminNickname !== ''
+            && $affectedNickname !== ''
+            && ! ($adminId !== null && $affectedId !== null && (string) $adminId === (string) $affectedId);
+
+        $details = [];
+
+        if ($roleOld !== null || $roleNew !== null) {
+            $details[] = [
+                'label' => null,
+                'value' => __('Role changed from :old to :new', [
+                    'old' => $roleOld ?? '—',
+                    'new' => $roleNew ?? '—',
+                ]),
+                'glyphs' => false,
+            ];
+        }
+
+        if (is_string($comment) && $comment !== '') {
+            $details[] = ['label' => null, 'value' => $comment, 'glyphs' => true];
+        }
+
+        if ($actionValue === 4) {
+            foreach (['tag', 'desc', 'region', 'status'] as $infoKey) {
+                $infoValue = $entry[$infoKey] ?? null;
+
+                if (is_string($infoValue) && $infoValue !== '') {
+                    $details[] = [
+                        'label' => ucfirst($infoKey),
+                        'value' => $infoValue,
+                        'glyphs' => in_array($infoKey, ['tag', 'desc'], true),
+                    ];
+                }
+            }
+        }
+
+        if ($actionValue === 5 && is_array($info)) {
+            $infoParts = [];
+
+            foreach (['name', 'tag', 'slogan'] as $infoKey) {
+                $infoValue = $info[$infoKey] ?? null;
+
+                if (is_string($infoValue) && $infoValue !== '') {
+                    $infoParts[] = $infoValue;
+                }
+            }
+
+            if ($infoParts !== []) {
+                $details[] = ['label' => null, 'value' => implode(' — ', $infoParts), 'glyphs' => true];
+            }
+        }
+
+        return [
+            'action_label' => $this->squadronLogActionLabel($actionValue, $affectedUser, $isKick),
+            'actor' => $actor,
+            'datetime' => is_numeric($timestamp) ? Carbon::createFromTimestamp((int) $timestamp)->format('Y-m-d H:i') : null,
+            'details' => $details,
+        ];
+    }
+
+    public function squadronLogActionLabel(?int $value, string $user, bool $isKick = false): string
+    {
+        return match ($value) {
+            0 => $isKick ? __(':user was kicked', ['user' => $user]) : __(':user left', ['user' => $user]),
+            1 => __(':user\'s application was accepted', ['user' => $user]),
+            2 => __(':user\'s role was changed', ['user' => $user]),
+            3 => __(':user\'s application was rejected', ['user' => $user]),
+            4 => __('Squadron information changed'),
+            5 => __('Squadron created'),
+            default => __('Unknown action'),
+        };
+    }
+
+    protected function formatSquadronLogUser(string $nickname, mixed $gaijinId): string
+    {
+        return is_numeric($gaijinId)
+            ? $nickname.' (#'.$gaijinId.')'
+            : $nickname;
     }
 
     /**

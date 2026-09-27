@@ -66,4 +66,18 @@ class User extends Authenticatable
     {
         return $this->hasOne(ThunderApiToken::class);
     }
+
+    public function canManageSquadron(): bool
+    {
+        $gaijinId = $this->thunderApiToken()->value('gaijin_id');
+
+        if (! is_numeric($gaijinId)) {
+            return false;
+        }
+
+        return Officer::query()
+            ->where('gaijin_id', (int) $gaijinId)
+            ->whereIn('rank', Officer::RANKS)
+            ->exists();
+    }
 }

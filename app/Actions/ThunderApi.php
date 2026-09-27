@@ -9,9 +9,9 @@ use RuntimeException;
 class ThunderApi
 {
     /**
-     * Attempt a login against ThunderAPI and return the issued token.
+     * Attempt a login against ThunderAPI and return the issued token and user ID.
      *
-     * @return array{token:string}
+     * @return array{token:string,user_id:int}
      *
      * @throws ThunderApiTwoFactorRequiredException
      * @throws ThunderApiException
@@ -51,12 +51,20 @@ class ThunderApi
         }
 
         $token = $response->json('token');
+        $userId = $response->json('user_id');
 
         if (! is_string($token) || $token === '') {
             throw new ThunderApiException('ThunderAPI login response is missing a token.');
         }
 
-        return ['token' => $token];
+        if (! is_numeric($userId)) {
+            throw new ThunderApiException('ThunderAPI login response is missing the user ID.');
+        }
+
+        return [
+            'token' => $token,
+            'user_id' => (int) $userId,
+        ];
     }
 
     /**
@@ -169,6 +177,57 @@ class ThunderApi
         $expires = $response->json('expires');
 
         return is_numeric($expires) ? (int) $expires : null;
+    }
+
+    /**
+     * Fetch a page of squadron logs.
+     *
+     * @return array{lastLog:string,logs:list<array<string,mixed>>}
+     *
+     * @throws ThunderApiException
+     */
+    public function getClanLogs(string $token, string $clanId, ?string $fromEntry = null, int $limit = 10): array
+    {
+        $query = ['limit' => $limit];
+
+        if ($fromEntry !== null && $fromEntry !== '') {
+            $query['fromEntry'] = $fromEntry;
+        }
+
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(30)
+                ->get($this->baseUrl().'/v1/clans/logs/'.$clanId, $query);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if (! $response->successful()) {
+            throw new ThunderApiException(sprintf('ThunderAPI squadron logs request failed (HTTP %d).', $response->status()));
+        }
+
+        $data = $response->json();
+
+        if (! is_array($data)) {
+            throw new ThunderApiException('Malformed squadron logs response.');
+        }
+
+        $lastLog = $data['lastLog'] ?? null;
+        $logs = $data['logs'] ?? [];
+
+        return [
+            'lastLog' => is_string($lastLog) ? $lastLog : '',
+            'logs' => array_values(array_filter($logs, static fn (mixed $entry): bool => is_array($entry))),
+        ];
     }
 
     protected function throwUnreachable(): never
