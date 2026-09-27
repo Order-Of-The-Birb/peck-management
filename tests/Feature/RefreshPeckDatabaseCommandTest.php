@@ -3,20 +3,32 @@
 use App\Models\PeckUser;
 use Illuminate\Support\Facades\Http;
 
-test('peck refresh command imports users from thunderinsights', function () {
+test('peck refresh command imports users from ThunderAPI', function () {
     config()->set('peck.squadron_name', 'Order Of The Birb');
-    config()->set('peck.thunderinsights_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_email', 'test@example.com');
+    config()->set('peck.thunderapi_password', 'secret');
 
     Http::fake([
-        'https://example.test/clans/direct/clan/search/*' => Http::response([
-            'clan' => [
-                'members' => [
-                    [
-                        'uid' => 900001,
-                        'nick' => 'birb_member@steam',
-                        'date' => 1_710_000_000,
-                        'initiator' => null,
-                    ],
+        'https://example.test/v1/login' => Http::response([
+            'status' => 'OK',
+            'token' => 'test-token',
+        ], 200),
+        'https://example.test/v1/clans/search/*' => Http::response([
+            [
+                '_id' => '123',
+                'name' => 'Order Of The Birb',
+                'namel' => 'order of the birb',
+            ],
+        ], 200),
+        'https://example.test/v1/clans/123' => Http::response([
+            'members' => [
+                [
+                    'uid' => '900001',
+                    'nick' => 'birb_member@steam',
+                    'role' => 3,
+                    'date' => 1_710_000_000,
+                    'initiator' => null,
                 ],
             ],
         ], 200),
@@ -30,23 +42,35 @@ test('peck refresh command imports users from thunderinsights', function () {
     expect($peckUser)->not->toBeNull();
     expect($peckUser?->username)->toBe('birb_member');
 
-    Http::assertSentCount(1);
+    Http::assertSentCount(3);
 });
 
 test('peck refresh command dry run does not write users', function () {
     config()->set('peck.squadron_name', 'Order Of The Birb');
-    config()->set('peck.thunderinsights_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_email', 'test@example.com');
+    config()->set('peck.thunderapi_password', 'secret');
 
     Http::fake([
-        'https://example.test/clans/direct/clan/search/*' => Http::response([
-            'clan' => [
-                'members' => [
-                    [
-                        'uid' => 900002,
-                        'nick' => 'dry_run_member',
-                        'date' => 1_710_000_100,
-                        'initiator' => null,
-                    ],
+        'https://example.test/v1/login' => Http::response([
+            'status' => 'OK',
+            'token' => 'test-token',
+        ], 200),
+        'https://example.test/v1/clans/search/*' => Http::response([
+            [
+                '_id' => '123',
+                'name' => 'Order Of The Birb',
+                'namel' => 'order of the birb',
+            ],
+        ], 200),
+        'https://example.test/v1/clans/123' => Http::response([
+            'members' => [
+                [
+                    'uid' => '900002',
+                    'nick' => 'dry_run_member',
+                    'role' => 3,
+                    'date' => 1_710_000_100,
+                    'initiator' => null,
                 ],
             ],
         ], 200),
@@ -56,5 +80,5 @@ test('peck refresh command dry run does not write users', function () {
         ->assertSuccessful();
 
     expect(PeckUser::query()->find(900002))->toBeNull();
-    Http::assertSentCount(1);
+    Http::assertSentCount(3);
 });

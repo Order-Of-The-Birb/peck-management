@@ -23,7 +23,7 @@ class RefreshPeckDB
         $squadron = $squadronName ?? config('peck.squadron_name');
 
         if (! is_string($squadron) || trim($squadron) === '') {
-            throw new RuntimeException('Missing squadron name. Set PECK_SQUADRON_NAME or pass --squadron.');
+            throw new RuntimeException('Missing squadron name. Set SQUADRON_NAME or pass --squadron.');
         }
 
         $members = $this->fetchSquadronMembers($squadron);
@@ -154,26 +154,17 @@ class RefreshPeckDB
      */
     protected function fetchSquadronMembers(string $squadronName): array
     {
-        $baseUrl = rtrim((string) config('peck.thunderinsights_base_url'), '/');
+        $token = $this->authenticate();
 
-        $response = Http::acceptJson()
-            ->timeout(20)
-            ->retry(3, 500)
-            ->get($baseUrl.'/clans/direct/clan/search/', [
-                'clan' => $squadronName,
-            ]);
+        $clan = $this->findClan($token, $squadronName);
 
-        if (! $response->successful()) {
-            throw new RuntimeException(
-                sprintf('Failed to fetch squadron data (HTTP %d).', $response->status()),
-            );
+        $clanId = (int) ($clan['_id'] ?? 0);
+
+        if ($clanId <= 0) {
+            throw new RuntimeException('Squadron search response is missing a valid clan id.');
         }
 
-        $members = Arr::get($response->json(), 'clan.members');
-
-        if (! is_array($members)) {
-            throw new RuntimeException('Malformed squadron response: clan.members is missing.');
-        }
+        $members = $this->fetchClanMembers($token, $clanId);
 
         $normalizedMembers = [];
 
@@ -205,6 +196,124 @@ class RefreshPeckDB
         }
 
         return $normalizedMembers;
+    }
+
+    protected function baseUrl(): string
+    {
+        $baseUrl = trim((string) config('peck.thunderapi_base_url'));
+
+        if ($baseUrl === '') {
+            throw new RuntimeException('Missing ThunderAPI base URL. Set THUNDERAPI_BASE_URL.');
+        }
+
+        return rtrim($baseUrl, '/');
+    }
+
+    protected function authenticate(): string
+    {
+        $email = trim((string) config('peck.thunderapi_email'));
+        $password = (string) config('peck.thunderapi_password');
+
+        if ($email === '' || $password === '') {
+            throw new RuntimeException('Missing ThunderAPI credentials. Set THUNDERAPI_EMAIL and THUNDERAPI_PASSWORD.');
+        }
+
+        $response = Http::acceptJson()
+            ->asForm()
+            ->timeout(20)
+            ->retry(3, 500)
+            ->post($this->baseUrl().'/v1/login', [
+                'email' => $email,
+                'password' => $password,
+            ]);
+
+        if (! $response->successful()) {
+            if (Arr::get($response->json(), 'status') === '2STEP') {
+                throw new RuntimeException('ThunderAPI account has two-factor authentication enabled. Automatic login is not supported.');
+            }
+
+            throw new RuntimeException(sprintf('ThunderAPI login failed (HTTP %d).', $response->status()));
+        }
+
+        $token = $response->json('token');
+
+        if (! is_string($token) || $token === '') {
+            throw new RuntimeException('ThunderAPI login response is missing a token.');
+        }
+
+        return $token;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function findClan(string $token, string $squadronName): array
+    {
+        $response = Http::acceptJson()
+            ->withToken($token)
+            ->timeout(20)
+            ->retry(3, 500)
+            ->get($this->baseUrl().'/v1/clans/search/', [
+                'clanName' => $squadronName,
+            ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException(sprintf('Failed to search for squadron (HTTP %d).', $response->status()));
+        }
+
+        $clans = $response->json();
+
+        if (! is_array($clans)) {
+            throw new RuntimeException('Malformed squadron search response.');
+        }
+
+        $normalizedName = strtolower(trim($squadronName));
+
+        foreach ($clans as $clan) {
+            if (! is_array($clan)) {
+                continue;
+            }
+
+            $clanNameLower = (string) ($clan['namel'] ?? '');
+
+            if ($clanNameLower === '' && isset($clan['name'])) {
+                $clanNameLower = strtolower(trim((string) $clan['name']));
+            }
+
+            if ($clanNameLower === $normalizedName) {
+                return $clan;
+            }
+        }
+
+        throw new RuntimeException(sprintf('Squadron "%s" could not be found.', $squadronName));
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    protected function fetchClanMembers(string $token, int $clanId): array
+    {
+        $response = Http::acceptJson()
+            ->withToken($token)
+            ->timeout(20)
+            ->retry(3, 500)
+            ->get($this->baseUrl().'/v1/clans/'.$clanId);
+
+        if (! $response->successful()) {
+            throw new RuntimeException(sprintf('Failed to fetch squadron members (HTTP %d).', $response->status()));
+        }
+
+        $members = $response->json('members');
+
+        if (! is_array($members)) {
+            throw new RuntimeException('Malformed squadron response: members is missing.');
+        }
+
+        if ($members !== [] && ! array_is_list($members)) {
+            return [$members];
+        }
+
+        return $members;
     }
 
     protected function normalizeUsername(string $username): string

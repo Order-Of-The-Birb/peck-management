@@ -11,17 +11,28 @@ test('automatic peck database refresh runs once when schedule is due', function 
     config()->set('peck.auto_refresh_enabled', true);
     config()->set('peck.refresh_schedule', '12:00');
     config()->set('peck.squadron_name', 'Order Of The Birb');
-    config()->set('peck.thunderinsights_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_email', 'test@example.com');
+    config()->set('peck.thunderapi_password', 'secret');
 
     Cache::forget((string) config('peck.auto_refresh.last_attempted_date_key'));
     Cache::forget((string) config('peck.auto_refresh.last_successful_date_key'));
     Cache::forget((string) config('peck.auto_refresh.lock_key'));
 
     Http::fake([
-        'https://example.test/clans/direct/clan/search/*' => Http::response([
-            'clan' => [
-                'members' => [],
+        'https://example.test/v1/login' => Http::response([
+            'status' => 'OK',
+            'token' => 'test-token',
+        ], 200),
+        'https://example.test/v1/clans/search/*' => Http::response([
+            [
+                '_id' => '123',
+                'name' => 'Order Of The Birb',
+                'namel' => 'order of the birb',
             ],
+        ], 200),
+        'https://example.test/v1/clans/123' => Http::response([
+            'members' => [],
         ], 200),
     ]);
 
@@ -31,7 +42,7 @@ test('automatic peck database refresh runs once when schedule is due', function 
     $this->get('/')
         ->assertRedirect(route('dashboard'));
 
-    Http::assertSentCount(1);
+    Http::assertSentCount(3);
 
     expect(Cache::get((string) config('peck.auto_refresh.last_attempted_date_key')))
         ->toBe('2026-04-20');
@@ -46,18 +57,14 @@ test('automatic peck database refresh does not run before schedule time', functi
     config()->set('peck.auto_refresh_enabled', true);
     config()->set('peck.refresh_schedule', '13:00');
     config()->set('peck.squadron_name', 'Order Of The Birb');
-    config()->set('peck.thunderinsights_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_email', 'test@example.com');
+    config()->set('peck.thunderapi_password', 'secret');
 
     Cache::forget((string) config('peck.auto_refresh.last_attempted_date_key'));
     Cache::forget((string) config('peck.auto_refresh.lock_key'));
 
-    Http::fake([
-        'https://example.test/clans/direct/clan/search/*' => Http::response([
-            'clan' => [
-                'members' => [],
-            ],
-        ], 200),
-    ]);
+    Http::fake();
 
     $this->get('/')
         ->assertRedirect(route('dashboard'));
@@ -73,18 +80,14 @@ test('automatic peck database refresh uses UTC schedule regardless of app timezo
     config()->set('peck.auto_refresh_enabled', true);
     config()->set('peck.refresh_schedule', '22:00');
     config()->set('peck.squadron_name', 'Order Of The Birb');
-    config()->set('peck.thunderinsights_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_base_url', 'https://example.test');
+    config()->set('peck.thunderapi_email', 'test@example.com');
+    config()->set('peck.thunderapi_password', 'secret');
 
     Cache::forget((string) config('peck.auto_refresh.last_attempted_date_key'));
     Cache::forget((string) config('peck.auto_refresh.lock_key'));
 
-    Http::fake([
-        'https://example.test/clans/direct/clan/search/*' => Http::response([
-            'clan' => [
-                'members' => [],
-            ],
-        ], 200),
-    ]);
+    Http::fake();
 
     $this->get('/')
         ->assertRedirect(route('dashboard'));

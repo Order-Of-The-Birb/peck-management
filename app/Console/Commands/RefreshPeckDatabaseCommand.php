@@ -23,7 +23,7 @@ class RefreshPeckDatabaseCommand extends Command
      *
      * @var string
      */
-    protected $description = 'Refresh PECK users from ThunderInsights';
+    protected $description = 'Refresh PECK users from ThunderAPI';
 
     /**
      * Execute the console command.
