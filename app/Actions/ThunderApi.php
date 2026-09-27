@@ -95,6 +95,48 @@ class ThunderApi
     }
 
     /**
+     * Search squadrons by name and tag.
+     *
+     * @return list<array<string, mixed>>
+     *
+     * @throws ThunderApiException
+     */
+    public function searchClans(string $token, string $query): array
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(30)
+                ->get($this->baseUrl().'/v1/clans/search/', [
+                    'clanName' => $query,
+                    'clanTag' => $query,
+                ]);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if (! $response->successful()) {
+            throw new ThunderApiException(sprintf('ThunderAPI squadron search failed (HTTP %d).', $response->status()));
+        }
+
+        $clans = $response->json();
+
+        if (! is_array($clans)) {
+            throw new ThunderApiException('Malformed squadron search response.');
+        }
+
+        return array_values(array_filter($clans, static fn (mixed $clan): bool => is_array($clan)));
+    }
+
+    /**
      * Refresh a token, returning its new expiry timestamp.
      *
      * Returns null when ThunderAPI reports the token is invalid or expired.

@@ -170,7 +170,7 @@ class PeckUsersDashboard extends Component
 
     public function mount(string $section = 'users'): void
     {
-        if (in_array($section, ['users', 'leave_info', 'alts', 'context'], true)) {
+        if (in_array($section, ['users', 'leave_info', 'alts', 'context', 'squadron_logs', 'squadron_applications', 'squadron_management'], true)) {
             $this->section = $section;
         }
     }
@@ -411,6 +411,21 @@ class PeckUsersDashboard extends Component
     public function isContextSection(): bool
     {
         return $this->section === 'context';
+    }
+
+    public function isSquadronLogsSection(): bool
+    {
+        return $this->section === 'squadron_logs';
+    }
+
+    public function isSquadronApplicationsSection(): bool
+    {
+        return $this->section === 'squadron_applications';
+    }
+
+    public function isSquadronManagementSection(): bool
+    {
+        return $this->section === 'squadron_management';
     }
 
     /**

@@ -4,6 +4,7 @@ namespace App\Actions;
 
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
+use App\Models\ThunderApiToken;
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -211,37 +212,16 @@ class RefreshPeckDB
 
     protected function authenticate(): string
     {
-        $email = trim((string) config('peck.thunderapi_email'));
-        $password = (string) config('peck.thunderapi_password');
+        $token = ThunderApiToken::query()
+            ->where('expires_at', '>', now()->timestamp)
+            ->orderByDesc('expires_at')
+            ->first();
 
-        if ($email === '' || $password === '') {
-            throw new RuntimeException('Missing ThunderAPI credentials. Set THUNDERAPI_EMAIL and THUNDERAPI_PASSWORD.');
+        if ($token === null) {
+            throw new RuntimeException('No valid ThunderAPI token is available. Link a ThunderAPI account before refreshing.');
         }
 
-        $response = Http::acceptJson()
-            ->asForm()
-            ->timeout(20)
-            ->retry(3, 500)
-            ->post($this->baseUrl().'/v1/login', [
-                'email' => $email,
-                'password' => $password,
-            ]);
-
-        if (! $response->successful()) {
-            if (Arr::get($response->json(), 'status') === '2STEP') {
-                throw new RuntimeException('ThunderAPI account has two-factor authentication enabled. Automatic login is not supported.');
-            }
-
-            throw new RuntimeException(sprintf('ThunderAPI login failed (HTTP %d).', $response->status()));
-        }
-
-        $token = $response->json('token');
-
-        if (! is_string($token) || $token === '') {
-            throw new RuntimeException('ThunderAPI login response is missing a token.');
-        }
-
-        return $token;
+        return $token->token;
     }
 
     /**

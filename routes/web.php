@@ -30,4 +30,22 @@ Route::get('/context', function () {
     ]);
 })->middleware('auth')->name('dashboard.context');
 
+Route::get('/squadron/logs', function () {
+    return view('dashboard', [
+        'dashboardSection' => 'squadron_logs',
+    ]);
+})->middleware('auth')->name('dashboard.squadron.logs');
+
+Route::get('/squadron/applications', function () {
+    return view('dashboard', [
+        'dashboardSection' => 'squadron_applications',
+    ]);
+})->middleware('auth')->name('dashboard.squadron.applications');
+
+Route::get('/squadron/management', function () {
+    return view('dashboard', [
+        'dashboardSection' => 'squadron_management',
+    ]);
+})->middleware('auth')->name('dashboard.squadron.management');
+
 require __DIR__.'/settings.php';

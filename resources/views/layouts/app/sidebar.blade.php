@@ -25,6 +25,18 @@
                         {{ __('Context') }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
+
+                <flux:sidebar.group :heading="__('Squadron')">
+                    <flux:sidebar.item icon="clipboard-document-list" :href="route('dashboard.squadron.logs')" :current="request()->routeIs('dashboard.squadron.logs')" wire:navigate>
+                        {{ __('Logs') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="clipboard-document" :href="route('dashboard.squadron.applications')" :current="request()->routeIs('dashboard.squadron.applications')" wire:navigate>
+                        {{ __('Applications') }}
+                    </flux:sidebar.item>
+                    <flux:sidebar.item icon="wrench-screwdriver" :href="route('dashboard.squadron.management')" :current="request()->routeIs('dashboard.squadron.management')" wire:navigate>
+                        {{ __('Management') }}
+                    </flux:sidebar.item>
+                </flux:sidebar.group>
             </flux:sidebar.nav>
 
             <flux:spacer />

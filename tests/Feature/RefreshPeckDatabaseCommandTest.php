@@ -1,19 +1,16 @@
 <?php
 
 use App\Models\PeckUser;
+use App\Models\ThunderApiToken;
 use Illuminate\Support\Facades\Http;
 
 test('peck refresh command imports users from ThunderAPI', function () {
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://example.test');
-    config()->set('peck.thunderapi_email', 'test@example.com');
-    config()->set('peck.thunderapi_password', 'secret');
+
+    ThunderApiToken::factory()->create(['token' => 'test-token']);
 
     Http::fake([
-        'https://example.test/v1/login' => Http::response([
-            'status' => 'OK',
-            'token' => 'test-token',
-        ], 200),
         'https://example.test/v1/clans/search/*' => Http::response([
             [
                 '_id' => '123',
@@ -42,20 +39,16 @@ test('peck refresh command imports users from ThunderAPI', function () {
     expect($peckUser)->not->toBeNull();
     expect($peckUser?->username)->toBe('birb_member');
 
-    Http::assertSentCount(3);
+    Http::assertSentCount(2);
 });
 
 test('peck refresh command dry run does not write users', function () {
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://example.test');
-    config()->set('peck.thunderapi_email', 'test@example.com');
-    config()->set('peck.thunderapi_password', 'secret');
+
+    ThunderApiToken::factory()->create(['token' => 'test-token']);
 
     Http::fake([
-        'https://example.test/v1/login' => Http::response([
-            'status' => 'OK',
-            'token' => 'test-token',
-        ], 200),
         'https://example.test/v1/clans/search/*' => Http::response([
             [
                 '_id' => '123',
@@ -80,5 +73,5 @@ test('peck refresh command dry run does not write users', function () {
         ->assertSuccessful();
 
     expect(PeckUser::query()->find(900002))->toBeNull();
-    Http::assertSentCount(3);
+    Http::assertSentCount(2);
 });

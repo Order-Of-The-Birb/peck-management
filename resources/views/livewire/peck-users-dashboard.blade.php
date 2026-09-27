@@ -324,6 +324,33 @@
             </section>
         @endif
 
+        @if ($this->isSquadronLogsSection())
+            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                <div>
+                    <flux:heading size="xl">{{ __('Logs') }}</flux:heading>
+                    <flux:text>{{ __('Squadron logs will appear here.') }}</flux:text>
+                </div>
+            </section>
+        @endif
+
+        @if ($this->isSquadronApplicationsSection())
+            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                <div>
+                    <flux:heading size="xl">{{ __('Applications') }}</flux:heading>
+                    <flux:text>{{ __('Squadron applications will appear here.') }}</flux:text>
+                </div>
+            </section>
+        @endif
+
+        @if ($this->isSquadronManagementSection())
+            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
+                <div>
+                    <flux:heading size="xl">{{ __('Management') }}</flux:heading>
+                    <flux:text>{{ __('Squadron management will appear here.') }}</flux:text>
+                </div>
+            </section>
+        @endif
+
         @if ($this->isUsersSection())
             <flux:modal wire:model="showFilterModal" class="max-w-2xl">
                 <form wire:submit="applyFilters" class="space-y-6">

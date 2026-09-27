@@ -2,9 +2,8 @@
 
 return [
     'squadron_name' => env('SQUADRON_NAME', 'Order Of The Birb'),
+    'squadron_id' => env('SQUADRON_ID'),
     'thunderapi_base_url' => env('THUNDERAPI_BASE_URL'),
-    'thunderapi_email' => env('THUNDERAPI_EMAIL'),
-    'thunderapi_password' => env('THUNDERAPI_PASSWORD'),
     'refresh_schedule' => env('REFRESH_SCHEDULE', '0:00'),
     'auto_refresh_enabled' => env('AUTO_REFRESH_ENABLED', env('APP_ENV') !== 'testing'),
     'auto_refresh' => [

@@ -1,9 +1,14 @@
 <?php
 
+use App\Actions\ThunderApi;
+use App\Actions\ThunderApiException;
+use App\Actions\ThunderApiUnauthorizedException;
+use App\Actions\UpdateEnvironmentFile;
 use App\Models\ApiKey;
 use App\Models\Officer;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
+use App\Models\ThunderApiToken;
 use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -86,6 +91,24 @@ new #[Title('Administration settings')] class extends Component {
 
     public string $deletePeckUserErrorMessage = '';
 
+    public string $squadronLookupSearch = '';
+
+    public bool $squadronLookupLoading = false;
+
+    public bool $squadronLookupFailed = false;
+
+    public bool $squadronLookupSearched = false;
+
+    public string $squadronLookupErrorMessage = '';
+
+    /** @var list<array{_id:string,tag:string,name:string}> */
+    public array $squadronLookupResults = [];
+
+    public bool $showSquadronSelectionModal = false;
+
+    /** @var array{_id:string,tag:string,name:string}|null */
+    public ?array $pendingSquadronSelection = null;
+
     #region Mounting
     public function mount(): void
     {
@@ -99,6 +122,12 @@ new #[Title('Administration settings')] class extends Component {
 
         if ($this->canManageUserLevels()) {
             $this->initializeSelectedManagedUser();
+        }
+
+        $this->squadronLookupSearch = (string) config('peck.squadron_name');
+
+        if ($this->canManageUserLevels() && ! $this->squadronIdConfigured && $this->thunderLoggedIn) {
+            $this->performSquadronSearch();
         }
     }
 
@@ -837,6 +866,200 @@ new #[Title('Administration settings')] class extends Component {
         }
     }
     #endregion
+
+    #region Squadron ID lookup
+    #[Computed]
+    public function squadronIdConfigured(): bool
+    {
+        return filled((string) config('peck.squadron_id'));
+    }
+
+    #[Computed]
+    public function thunderLoggedIn(): bool
+    {
+        $token = ThunderApiToken::query()->find(Auth::id());
+
+        return $token instanceof ThunderApiToken && ! $token->isExpired();
+    }
+
+    #[Computed]
+    public function squadronLookupBlocked(): bool
+    {
+        return ! $this->thunderLoggedIn || $this->squadronLookupFailed;
+    }
+
+    #[Computed]
+    public function squadronLookupBlockedMessage(): string
+    {
+        if (! $this->thunderLoggedIn) {
+            return __('This card is only available after connecting your ThunderAPI account on your profile.');
+        }
+
+        return $this->squadronLookupErrorMessage !== ''
+            ? $this->squadronLookupErrorMessage
+            : __('ThunderAPI could not be reached.');
+    }
+
+    public function updatedSquadronLookupSearch(): void
+    {
+        $this->performSquadronSearch();
+    }
+
+    public function performSquadronSearch(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        if (! $this->thunderLoggedIn) {
+            $this->squadronLookupResults = [];
+            $this->squadronLookupSearched = false;
+            $this->squadronLookupFailed = false;
+            $this->squadronLookupErrorMessage = '';
+
+            return;
+        }
+
+        $query = trim($this->squadronLookupSearch);
+
+        if ($query === '') {
+            $this->squadronLookupResults = [];
+            $this->squadronLookupSearched = false;
+            $this->squadronLookupFailed = false;
+            $this->squadronLookupErrorMessage = '';
+
+            return;
+        }
+
+        $token = ThunderApiToken::query()->find(Auth::id());
+
+        if (! $token instanceof ThunderApiToken || $token->isExpired()) {
+            $this->squadronLookupResults = [];
+            $this->squadronLookupSearched = false;
+            $this->squadronLookupFailed = false;
+            $this->squadronLookupErrorMessage = '';
+
+            return;
+        }
+
+        $this->squadronLookupLoading = true;
+        $this->squadronLookupFailed = false;
+        $this->squadronLookupErrorMessage = '';
+
+        try {
+            $results = app(ThunderApi::class)->searchClans($token->token, $query);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            $this->squadronLookupResults = [];
+            $this->squadronLookupSearched = false;
+            $this->squadronLookupFailed = true;
+            $this->squadronLookupErrorMessage = $exception->getMessage();
+            $this->squadronLookupLoading = false;
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->squadronLookupResults = [];
+            $this->squadronLookupSearched = false;
+            $this->squadronLookupFailed = true;
+            $this->squadronLookupErrorMessage = $exception->getMessage();
+            $this->squadronLookupLoading = false;
+
+            return;
+        } catch (\Throwable $throwable) {
+            report($throwable);
+
+            $this->squadronLookupResults = [];
+            $this->squadronLookupSearched = false;
+            $this->squadronLookupFailed = true;
+            $this->squadronLookupErrorMessage = __('ThunderAPI could not be reached.');
+            $this->squadronLookupLoading = false;
+
+            return;
+        }
+
+        $this->squadronLookupResults = $this->normalizeSquadronLookupResults($results);
+        $this->squadronLookupSearched = true;
+        $this->squadronLookupLoading = false;
+    }
+
+    public function requestSquadronSelection(string $id): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        $selection = collect($this->squadronLookupResults)->firstWhere('_id', $id);
+
+        if (! is_array($selection)) {
+            return;
+        }
+
+        $this->pendingSquadronSelection = $selection;
+        $this->showSquadronSelectionModal = true;
+    }
+
+    public function cancelSquadronSelection(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        $this->showSquadronSelectionModal = false;
+        $this->pendingSquadronSelection = null;
+    }
+
+    public function confirmSquadronSelection(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        if (! is_array($this->pendingSquadronSelection)) {
+            return;
+        }
+
+        $id = trim((string) ($this->pendingSquadronSelection['_id'] ?? ''));
+
+        if ($id === '') {
+            $this->cancelSquadronSelection();
+
+            return;
+        }
+
+        app(UpdateEnvironmentFile::class)->set('SQUADRON_ID', $id);
+
+        config()->set('peck.squadron_id', $id);
+
+        $this->cancelSquadronSelection();
+        $this->squadronLookupResults = [];
+        $this->squadronLookupSearched = false;
+        $this->squadronLookupFailed = false;
+        $this->squadronLookupErrorMessage = '';
+        $this->dispatch('squadron-id-configured');
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $results
+     * @return list<array{_id:string,tag:string,name:string}>
+     */
+    protected function normalizeSquadronLookupResults(array $results): array
+    {
+        $normalized = [];
+
+        foreach ($results as $clan) {
+            if (! is_array($clan)) {
+                continue;
+            }
+
+            $id = trim((string) ($clan['_id'] ?? ''));
+
+            if ($id === '') {
+                continue;
+            }
+
+            $normalized[] = [
+                '_id' => $id,
+                'tag' => trim((string) ($clan['tag'] ?? '')),
+                'name' => trim((string) ($clan['name'] ?? '')),
+            ];
+        }
+
+        return $normalized;
+    }
+    #endregion
 };
 ?>
 
@@ -1024,6 +1247,60 @@ new #[Title('Administration settings')] class extends Component {
                 </div>
             </div>
         </div>
+
+        @if (! $this->squadronIdConfigured)
+        <div class="mb-6 break-inside-avoid space-y-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/30">
+            <div class="relative">
+                <div class="flex items-center gap-2">
+                    <flux:heading size="lg">{{ __('Squadron ID Lookup') }}</flux:heading>
+                </div>
+
+                <flux:subheading class="mt-1">
+                    {{ __('Initialize Squadron ID value. This will be used for future lookup requests across the site. Only has to be set up once.') }}
+                </flux:subheading>
+
+                <div class="mt-4 space-y-3">
+                    <flux:input wire:model.live.debounce.1000ms="squadronLookupSearch" :label="__('Search squadrons')" />
+
+                    @if ($squadronLookupLoading)
+                        <div class="px-3 py-4 text-center text-sm text-neutral-500 dark:text-neutral-400">
+                            {{ __('Searching…') }}
+                        </div>
+                    @elseif ($squadronLookupSearched && $squadronLookupResults === [])
+                        <div class="rounded-lg border border-neutral-200 px-3 py-4 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                            {{ __('No squadron could be found with this search. Try refining your search query.') }}
+                        </div>
+                    @else
+                        <div class="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
+                            <div class="max-h-56 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+                                @forelse ($squadronLookupResults as $squadronLookupResult)
+                                    <div wire:key="squadron-lookup-result-{{ $squadronLookupResult['_id'] }}" class="flex items-center justify-between gap-3 px-3 py-2">
+                                        <flux:text>{{ $squadronLookupResult['_id'] }} {{ $squadronLookupResult['tag'] }} {{ $squadronLookupResult['name'] }}</flux:text>
+
+                                        <flux:button type="button" variant="primary" size="sm" wire:click="requestSquadronSelection('{{ $squadronLookupResult['_id'] }}')">
+                                            {{ __('Select') }}
+                                        </flux:button>
+                                    </div>
+                                @empty
+                                    <div class="px-3 py-4 text-center text-sm text-neutral-500 dark:text-neutral-400">
+                                        {{ __('No results.') }}
+                                    </div>
+                                @endforelse
+                            </div>
+                        </div>
+                    @endif
+                </div>
+
+                @if ($this->squadronLookupBlocked)
+                    <div class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/60 p-4 backdrop-blur-sm dark:bg-neutral-900/60">
+                        <flux:text class="max-w-sm text-center font-medium">
+                            {{ $this->squadronLookupBlockedMessage }}
+                        </flux:text>
+                    </div>
+                @endif
+            </div>
+        </div>
+        @endif
         </div>
 
         <flux:modal wire:model="showAddOfficerModal" class="max-w-2xl">
@@ -1220,6 +1497,35 @@ new #[Title('Administration settings')] class extends Component {
 
                     <flux:button type="button" variant="primary" wire:click="copyGeneratedApiKey" :disabled="! filled($generatedApiToken)">
                         {{ __('Copy key') }}
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
+
+        <flux:modal wire:model="showSquadronSelectionModal" class="max-w-xl">
+            <div class="space-y-6">
+                <div>
+                    <flux:heading size="lg">{{ __('Confirm squadron selection') }}</flux:heading>
+                    <flux:subheading>
+                        {{ __('Are you sure this is the right squadron?') }}
+                    </flux:subheading>
+                </div>
+
+                <div class="space-y-1 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
+                    <flux:text>{{ __('Squadron ID: :id', ['id' => $pendingSquadronSelection['_id'] ?? '—']) }}</flux:text>
+                    <flux:text>{{ __('Tag: :tag', ['tag' => $pendingSquadronSelection['tag'] ?? '—']) }}</flux:text>
+                    <flux:text>{{ __('Name: :name', ['name' => $pendingSquadronSelection['name'] ?? '—']) }}</flux:text>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-end gap-3">
+                    <flux:modal.close>
+                        <flux:button type="button" variant="ghost" wire:click="cancelSquadronSelection">
+                            {{ __('Cancel') }}
+                        </flux:button>
+                    </flux:modal.close>
+
+                    <flux:button type="button" variant="primary" wire:click="confirmSquadronSelection" wire:loading.attr="disabled" wire:target="confirmSquadronSelection">
+                        {{ __('Confirm') }}
                     </flux:button>
                 </div>
             </div>
