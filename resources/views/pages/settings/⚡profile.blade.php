@@ -1,6 +1,10 @@
 <?php
 
+use App\Actions\ThunderApi;
+use App\Actions\ThunderApiException;
+use App\Actions\ThunderApiTwoFactorRequiredException;
 use App\Concerns\ProfileValidationRules;
+use App\Models\ThunderApiToken;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
@@ -13,6 +17,12 @@ new #[Title('Profile settings')] class extends Component {
 
     public string $name = '';
     public string $email = '';
+
+    public string $thunderEmail = '';
+    public string $thunderPassword = '';
+    public string $thunderCode = '';
+    public bool $twoFactorRequired = false;
+    public ?string $thunderError = null;
 
     /**
      * Mount the component.
@@ -73,6 +83,126 @@ new #[Title('Profile settings')] class extends Component {
         return !Auth::user() instanceof MustVerifyEmail
             || (Auth::user() instanceof MustVerifyEmail && Auth::user()->hasVerifiedEmail());
     }
+
+    #region ThunderAPI
+    #[Computed]
+    public function thunderToken(): ?ThunderApiToken
+    {
+        return ThunderApiToken::query()->find(Auth::id());
+    }
+
+    #[Computed]
+    public function thunderStatus(): string
+    {
+        $token = $this->thunderToken;
+
+        if ($token === null) {
+            return 'missing';
+        }
+
+        return $token->isExpired() ? 'expired' : 'valid';
+    }
+
+    #[Computed]
+    public function thunderStatusLabel(): string
+    {
+        return match ($this->thunderStatus) {
+            'valid' => __('Connected'),
+            'expired' => __('Expired'),
+            default => __('Not connected'),
+        };
+    }
+
+    public function submitThunderLogin(): void
+    {
+        $this->thunderError = null;
+
+        $validated = $this->validate([
+            'thunderEmail' => ['required', 'string', 'email', 'max:255'],
+            'thunderPassword' => ['required', 'string', 'min:6', 'max:64'],
+        ]);
+
+        try {
+            $result = app(ThunderApi::class)->login($validated['thunderEmail'], $validated['thunderPassword']);
+        } catch (ThunderApiTwoFactorRequiredException) {
+            $this->twoFactorRequired = true;
+            $this->thunderCode = '';
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->thunderError = $exception->getMessage();
+
+            return;
+        }
+
+        $this->storeThunderToken($result['token']);
+    }
+
+    public function submitThunderTwoFactor(): void
+    {
+        $this->thunderError = null;
+
+        $validated = $this->validate([
+            'thunderEmail' => ['required', 'string', 'email', 'max:255'],
+            'thunderPassword' => ['required', 'string', 'min:6', 'max:64'],
+            'thunderCode' => ['required', 'numeric', 'digits_between:4,8'],
+        ]);
+
+        $thunderApi = app(ThunderApi::class);
+
+        try {
+            $thunderApi->answerTwoFactor($validated['thunderEmail'], $validated['thunderPassword'], (string) $validated['thunderCode']);
+        } catch (ThunderApiException $exception) {
+            $this->thunderError = $exception->getMessage();
+
+            return;
+        }
+
+        try {
+            $result = $thunderApi->login($validated['thunderEmail'], $validated['thunderPassword']);
+        } catch (ThunderApiTwoFactorRequiredException) {
+            $this->thunderError = __('Two-factor authentication failed. Please check your code and try again.');
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->thunderError = $exception->getMessage();
+
+            return;
+        }
+
+        $this->storeThunderToken($result['token']);
+    }
+
+    public function cancelTwoFactor(): void
+    {
+        $this->twoFactorRequired = false;
+        $this->thunderCode = '';
+        $this->thunderError = null;
+    }
+
+    public function disconnectThunder(): void
+    {
+        $this->thunderToken?->delete();
+
+        $this->reset('thunderEmail', 'thunderPassword', 'thunderCode');
+        $this->twoFactorRequired = false;
+        $this->thunderError = null;
+    }
+
+    protected function storeThunderToken(string $token): void
+    {
+        $user = Auth::user();
+
+        ThunderApiToken::storeForUser($user, $token);
+
+        $this->reset('thunderPassword', 'thunderCode');
+        $this->twoFactorRequired = false;
+        $this->thunderError = null;
+
+        $this->dispatch('thunderapi-linked');
+    }
+    #endregion
+
     #[Computed]
     public function adminAccess(): bool
     {
@@ -123,6 +253,78 @@ new #[Title('Profile settings')] class extends Component {
                 </x-action-message>
             </div>
         </form>
+
+        <flux:separator class="my-6" />
+
+        <section class="w-full space-y-6">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <flux:heading size="lg">{{ __('ThunderAPI') }}</flux:heading>
+                    <flux:subheading>{{ __('Link your War Thunder account to use ThunderAPI features.') }}</flux:subheading>
+                </div>
+
+                <div class="flex shrink-0 items-center gap-2">
+                    <span @class([
+                        'h-2.5 w-2.5 rounded-full',
+                        'bg-red-500' => $this->thunderStatus === 'missing',
+                        'bg-amber-500' => $this->thunderStatus === 'expired',
+                        'bg-green-500' => $this->thunderStatus === 'valid',
+                    ])></span>
+                    <flux:text>{{ $this->thunderStatusLabel }}</flux:text>
+                </div>
+            </div>
+
+            @if ($this->thunderStatus === 'valid')
+                <flux:callout variant="success" icon="check-circle" :heading="__('Connected to ThunderAPI')">
+                    <flux:text>{{ __('Your War Thunder account is linked and its token is kept refreshed automatically.') }}</flux:text>
+                </flux:callout>
+
+                <flux:button variant="ghost" wire:click="disconnectThunder">{{ __('Disconnect') }}</flux:button>
+            @else
+                @if ($this->thunderStatus === 'expired')
+                    <flux:callout variant="warning" icon="exclamation-triangle" :heading="__('Your ThunderAPI token has expired')">
+                        <flux:text>{{ __('Your linked token is no longer valid. Log in again to reconnect.') }}</flux:text>
+                    </flux:callout>
+                @endif
+
+                <form wire:submit="{{ $twoFactorRequired ? 'submitThunderTwoFactor' : 'submitThunderLogin' }}" class="space-y-4">
+                    <flux:field>
+                        <flux:label>{{ __('Email') }}</flux:label>
+                        <flux:input wire:model="thunderEmail" type="email" required autocomplete="off" />
+                        <flux:error name="thunderEmail" />
+                    </flux:field>
+
+                    <flux:field>
+                        <flux:label>{{ __('Password') }}</flux:label>
+                        <flux:input wire:model="thunderPassword" type="password" required autocomplete="off" viewable />
+                        <flux:error name="thunderPassword" />
+                    </flux:field>
+
+                    @if ($twoFactorRequired)
+                        <flux:field>
+                            <flux:label>{{ __('Two-factor code') }}</flux:label>
+                            <flux:input wire:model="thunderCode" type="text" inputmode="numeric" required autocomplete="one-time-code" />
+                            <flux:description>{{ __('Enter the code from your authenticator app or email.') }}</flux:description>
+                            <flux:error name="thunderCode" />
+                        </flux:field>
+                    @endif
+
+                    @if ($thunderError)
+                        <flux:callout variant="danger" icon="exclamation-circle" :heading="$thunderError" />
+                    @endif
+
+                    <div class="flex items-center gap-4">
+                        <flux:button variant="primary" type="submit">
+                            {{ $twoFactorRequired ? __('Verify code') : __('Connect') }}
+                        </flux:button>
+
+                        @if ($twoFactorRequired)
+                            <flux:button type="button" wire:click="cancelTwoFactor">{{ __('Cancel') }}</flux:button>
+                        @endif
+                    </div>
+                </form>
+            @endif
+        </section>
 
         @if ($this->showDeleteUser)
             <livewire:pages::settings.delete-user-form />
