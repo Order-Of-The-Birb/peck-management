@@ -75,3 +75,7 @@ select:focus[data-flux-control] {
 .wt-glyphs {
 	font-family: "Skyquake", "Roboto Condensed", sans-serif;
 }
+
+[data-flux-modal] > dialog::backdrop {
+	background-color: rgba(0, 0, 0, 0.5);
+}
