@@ -456,7 +456,7 @@
                         @endif
                     </section>
 
-                    <flux:modal wire:model="showApplicantModal" class="max-w-lg">
+                    <flux:modal wire:model="showApplicantModal" class="w-[48rem] max-w-[calc(100vw-2rem)]">
                         @if (($applicant = $this->selectedApplicant()) !== null)
                             <div class="space-y-6">
                                 <div>
