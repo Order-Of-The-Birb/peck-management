@@ -12,6 +12,11 @@ return [
         'last_attempted_date_key' => 'peck:auto-refresh:last-attempted-date',
         'last_successful_date_key' => 'peck:auto-refresh:last-successful-date',
     ],
+    'force_refresh' => [
+        'lock_key' => 'peck:force-refresh:lock',
+        'result_key' => 'peck:force-refresh:result',
+        'cooldown_minutes' => (int) env('FORCE_REFRESH_COOLDOWN_MINUTES', 10),
+    ],
     'thunderapi_refresh' => [
         'batch_size' => (int) env('THUNDERAPI_REFRESH_BATCH_SIZE', 4),
         'refresh_after_hours' => (int) env('THUNDERAPI_REFRESH_AFTER_HOURS', 1),

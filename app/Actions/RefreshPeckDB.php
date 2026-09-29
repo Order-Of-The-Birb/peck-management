@@ -221,6 +221,27 @@ class RefreshPeckDB
             throw new RuntimeException('No valid ThunderAPI token is available. Link a ThunderAPI account before refreshing.');
         }
 
+        $refreshAfterHours = max(1, (int) config('peck.thunderapi_refresh.refresh_after_hours'));
+
+        if ($token->isRefreshDue($refreshAfterHours)) {
+            try {
+                $expires = app(ThunderApi::class)->refreshToken($token->token);
+            } catch (ThunderApiException) {
+                return $token->token;
+            }
+
+            if ($expires === null) {
+                $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+                throw new RuntimeException('Your ThunderAPI token is no longer valid. Reconnect your account from the profile settings.');
+            }
+
+            $token->forceFill([
+                'expires_at' => $expires,
+                'refreshed_at' => now(),
+            ])->save();
+        }
+
         return $token->token;
     }
 
@@ -232,7 +253,7 @@ class RefreshPeckDB
         $response = Http::acceptJson()
             ->withToken($token)
             ->timeout(20)
-            ->retry(3, 500)
+            ->retry(3, 500, throw: false)
             ->get($this->baseUrl().'/v1/clans/search/', [
                 'clanName' => $squadronName,
             ]);
@@ -276,7 +297,7 @@ class RefreshPeckDB
         $response = Http::acceptJson()
             ->withToken($token)
             ->timeout(20)
-            ->retry(3, 500)
+            ->retry(3, 500, throw: false)
             ->get($this->baseUrl().'/v1/clans/'.$clanId);
 
         if (! $response->successful()) {

@@ -3,6 +3,7 @@
 namespace App\Actions;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -162,7 +163,7 @@ class ThunderApi
             $this->throwUnreachable();
         }
 
-        if ($response->status() === 404) {
+        if ($response->status() === 401 || $response->status() === 404) {
             return null;
         }
 
@@ -228,6 +229,114 @@ class ThunderApi
             'lastLog' => is_string($lastLog) ? $lastLog : '',
             'logs' => array_values(array_filter($logs, static fn (mixed $entry): bool => is_array($entry))),
         ];
+    }
+
+    /**
+     * Fetch the current clan applications for a squadron.
+     *
+     * @return list<array<string,mixed>>
+     *
+     * @throws ThunderApiException
+     */
+    public function getClanApplicants(string $token, string $clanId): array
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(30)
+                ->get($this->baseUrl().'/v1/clans/applicants/'.$clanId);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if (! $response->successful()) {
+            throw new ThunderApiException(sprintf('ThunderAPI applicants request failed (HTTP %d).', $response->status()));
+        }
+
+        $data = $response->json();
+
+        if (! is_array($data)) {
+            return [];
+        }
+
+        return array_values(array_filter($data, static fn (mixed $entry): bool => is_array($entry)));
+    }
+
+    /**
+     * Accept a clan application.
+     *
+     * @throws ThunderApiException
+     */
+    public function acceptApplicant(string $token, string $userId): void
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(30)
+                ->post($this->baseUrl().'/v1/clans/accept/'.$userId);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        $this->throwApplicantActionFailure($response, 'accept');
+    }
+
+    /**
+     * Reject a clan application.
+     *
+     * @throws ThunderApiException
+     */
+    public function rejectApplicant(string $token, string $userId, string $message = ''): void
+    {
+        try {
+            $request = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(30);
+
+            if ($message !== '') {
+                $request->withQueryParameters(['message' => $message]);
+            }
+
+            $response = $request->post($this->baseUrl().'/v1/clans/reject/'.$userId);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        $this->throwApplicantActionFailure($response, 'reject');
+    }
+
+    /**
+     * @throws ThunderApiException
+     */
+    private function throwApplicantActionFailure(Response $response, string $action): void
+    {
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if ($response->successful()) {
+            return;
+        }
+
+        $detail = $response->json('detail');
+
+        throw new ThunderApiException(
+            is_string($detail) && $detail !== ''
+                ? $detail
+                : sprintf('ThunderAPI %s applicant request failed (HTTP %d).', $action, $response->status())
+        );
     }
 
     protected function throwUnreachable(): never

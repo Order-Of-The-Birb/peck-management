@@ -4,7 +4,10 @@ use App\Models\ApiKey;
 use App\Models\Officer;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
+use App\Models\ThunderApiToken;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
 test('admin settings page is displayed for admins', function () {
@@ -507,4 +510,125 @@ test('delete user action reports a graceful error when selected user is already 
         ->assertSet('showDeletePeckUserModal', false)
         ->assertSet('showDeletePeckUserError', true)
         ->assertSee('The selected user no longer exists.');
+});
+
+test('admin can force a refresh with a global ten minute cooldown', function () {
+    $this->withoutDefer();
+
+    $admin = User::query()->create([
+        'name' => 'Force Refresh Admin',
+        'email' => 'force-refresh-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 2,
+    ])->save();
+
+    $this->actingAs($admin);
+
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+
+    ThunderApiToken::factory()->create(['token' => 'test-token']);
+
+    Cache::forget((string) config('peck.force_refresh.lock_key'));
+
+    Http::fake([
+        'https://thunder.example/v1/clans/search/*' => Http::response([
+            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        ], 200),
+        'https://thunder.example/v1/clans/123' => Http::response([
+            'members' => [],
+        ], 200),
+    ]);
+
+    Livewire::test('pages::settings.admin')
+        ->call('requestForceRefresh')
+        ->assertSet('forceRefreshError', null)
+        ->assertSee('Refresh completed');
+
+    expect(Cache::has((string) config('peck.force_refresh.lock_key')))->toBeTrue();
+    Http::assertSentCount(2);
+
+    Livewire::test('pages::settings.admin')
+        ->call('requestForceRefresh')
+        ->assertSee('try again in');
+
+    Http::assertSentCount(2);
+});
+
+test('force refresh surfaces an error when thunderapi rejects the token', function () {
+    $this->withoutDefer();
+
+    $admin = User::query()->create([
+        'name' => 'Force Refresh Error Admin',
+        'email' => 'force-refresh-error-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 2,
+    ])->save();
+
+    $this->actingAs($admin);
+
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+
+    ThunderApiToken::factory()->create(['token' => 'test-token']);
+
+    Cache::forget((string) config('peck.force_refresh.lock_key'));
+    Cache::forget((string) config('peck.force_refresh.result_key'));
+
+    Http::fake([
+        'https://thunder.example/v1/clans/search/*' => Http::response([
+            'detail' => 'User not found',
+        ], 401),
+    ]);
+
+    Livewire::test('pages::settings.admin')
+        ->call('requestForceRefresh')
+        ->assertSee('Failed to search for squadron (HTTP 401)');
+});
+
+test('force refresh surfaces a clear error when the token is invalid', function () {
+    $this->withoutDefer();
+
+    $admin = User::query()->create([
+        'name' => 'Force Refresh Invalid Token Admin',
+        'email' => 'force-refresh-invalid-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 2,
+    ])->save();
+
+    $this->actingAs($admin);
+
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+
+    ThunderApiToken::factory()->create([
+        'token' => 'test-token',
+        'refreshed_at' => now()->subHours(2),
+    ]);
+
+    Cache::forget((string) config('peck.force_refresh.lock_key'));
+    Cache::forget((string) config('peck.force_refresh.result_key'));
+
+    Http::fake([
+        'https://thunder.example/v1/refresh-token' => Http::response([
+            'status' => 'FAIL',
+            'detail' => 'Invalid token',
+        ], 404),
+    ]);
+
+    Livewire::test('pages::settings.admin')
+        ->call('requestForceRefresh')
+        ->assertSee('Your ThunderAPI token is no longer valid');
 });

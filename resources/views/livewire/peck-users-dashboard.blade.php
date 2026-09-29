@@ -412,9 +412,138 @@
                     <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
                         <div>
                             <flux:heading size="xl">{{ __('Applications') }}</flux:heading>
-                            <flux:text>{{ __('Squadron applications will appear here.') }}</flux:text>
+                            <flux:text>{{ __('Review and respond to squadron applications.') }}</flux:text>
                         </div>
+
+                        @if ($squadronApplicantsFailed)
+                            <div class="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100" role="alert">
+                                {{ $squadronApplicantsErrorMessage }}
+                            </div>
+                        @elseif ($squadronApplicants === [])
+                            <div class="mt-6 rounded-xl border border-dashed border-neutral-300 p-10 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                                {{ __('There are no applicants currently.') }}
+                            </div>
+                        @else
+                            <div class="mt-6 grid gap-4 md:grid-cols-3">
+                                @foreach ($squadronApplicants as $applicant)
+                                    <button
+                                        type="button"
+                                        wire:key="applicant-{{ $applicant['uid'] }}"
+                                        wire:click="openApplicantModal('{{ $applicant['uid'] }}')"
+                                        class="flex cursor-pointer flex-col rounded-xl border border-neutral-200 bg-white p-4 text-left transition hover:border-neutral-300 hover:shadow-sm dark:border-neutral-700 dark:bg-neutral-900/40 dark:hover:border-neutral-600"
+                                    >
+                                        <div class="flex items-center justify-between gap-4">
+                                            <div class="min-w-0 flex-1 rounded-lg bg-neutral-100 px-6 py-2 dark:bg-neutral-800">
+                                                <flux:heading size="sm" class="truncate">{{ $applicant['nickname'] }}</flux:heading>
+                                                <flux:text class="text-sm text-neutral-500 dark:text-neutral-400">#{{ $applicant['uid'] }}</flux:text>
+                                            </div>
+
+                                            @if ($applicant['timestamp'] !== null)
+                                                <time datetime="{{ $applicant['timestamp'] }}" class="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
+                                                    {{ $applicant['timestamp'] }}
+                                                </time>
+                                            @endif
+                                        </div>
+
+                                        @if ($applicant['country'] !== null || $applicant['timezone'] !== null)
+                                            <div class="mt-auto pt-4 text-sm text-neutral-500 dark:text-neutral-400">
+                                                {{ collect([$applicant['country'], $applicant['timezone']])->filter()->implode(' · ') }}
+                                            </div>
+                                        @endif
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
                     </section>
+
+                    <flux:modal wire:model="showApplicantModal" class="max-w-lg">
+                        @if (($applicant = $this->selectedApplicant()) !== null)
+                            <div class="space-y-6">
+                                <div>
+                                    <flux:heading size="lg">{{ $applicant['nickname'] }}</flux:heading>
+                                    <flux:subheading>#{{ $applicant['uid'] }}</flux:subheading>
+                                </div>
+
+                                <div class="grid gap-4 sm:grid-cols-2">
+                                    <div>
+                                        <flux:text class="text-sm font-medium text-neutral-500 dark:text-neutral-400">{{ __('Country') }}</flux:text>
+                                        <flux:text class="mt-1">{{ $applicant['country'] ?? '—' }}</flux:text>
+                                    </div>
+
+                                    <div>
+                                        <flux:text class="text-sm font-medium text-neutral-500 dark:text-neutral-400">{{ __('Timezone') }}</flux:text>
+                                        <flux:text class="mt-1">{{ $applicant['timezone'] ?? '—' }}</flux:text>
+                                    </div>
+                                </div>
+
+                                @if ($applicant['timestamp'] !== null)
+                                    <div>
+                                        <flux:text class="text-sm font-medium text-neutral-500 dark:text-neutral-400">{{ __('Applied') }}</flux:text>
+                                        <flux:text class="mt-1">{{ $applicant['timestamp'] }}</flux:text>
+                                    </div>
+                                @endif
+
+                                <flux:textarea :label="__('Comment')" rows="5" readonly>{{ $applicant['comment'] }}</flux:textarea>
+
+                                @if ($applicantActionError !== '')
+                                    <div class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100" role="alert">
+                                        {{ $applicantActionError }}
+                                    </div>
+                                @endif
+
+                                <div class="flex flex-wrap items-center justify-end gap-3">
+                                    <flux:modal.close>
+                                        <flux:button type="button" variant="ghost" wire:click="closeApplicantModal">
+                                            {{ __('Cancel') }}
+                                        </flux:button>
+                                    </flux:modal.close>
+
+                                    <flux:button type="button" variant="danger" wire:click="openRejectApplicantModal">
+                                        {{ __('Reject') }}
+                                    </flux:button>
+
+                                    <flux:button type="button" variant="primary" wire:click="acceptApplicant" wire:loading.attr="disabled" wire:target="acceptApplicant">
+                                        {{ __('Accept') }}
+                                    </flux:button>
+                                </div>
+                            </div>
+                        @endif
+                    </flux:modal>
+
+                    <flux:modal wire:model="showRejectApplicantModal" class="max-w-md">
+                        <form wire:submit="confirmRejectApplicant" class="space-y-6">
+                            <div>
+                                <flux:heading size="lg">{{ __('Reject Application') }}</flux:heading>
+                                <flux:subheading>
+                                    {{ __('Provide a reason for rejecting this application.') }}
+                                </flux:subheading>
+                            </div>
+
+                            <flux:textarea
+                                wire:model="rejectApplicantReason"
+                                :label="__('Reason')"
+                                :placeholder="__('Reason for rejection')"
+                            />
+
+                            @if ($applicantActionError !== '')
+                                <div class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100" role="alert">
+                                    {{ $applicantActionError }}
+                                </div>
+                            @endif
+
+                            <div class="flex flex-wrap items-center justify-end gap-3">
+                                <flux:modal.close>
+                                    <flux:button type="button" variant="ghost" wire:click="cancelRejectApplicant">
+                                        {{ __('Cancel') }}
+                                    </flux:button>
+                                </flux:modal.close>
+
+                                <flux:button type="submit" variant="danger" wire:loading.attr="disabled" wire:target="confirmRejectApplicant">
+                                    {{ __('Reject') }}
+                                </flux:button>
+                            </div>
+                        </form>
+                    </flux:modal>
                 @endif
 
                 @if ($this->isSquadronManagementSection())

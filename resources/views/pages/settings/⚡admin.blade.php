@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\RefreshPeckDB;
 use App\Actions\ThunderApi;
 use App\Actions\ThunderApiException;
 use App\Actions\ThunderApiUnauthorizedException;
@@ -13,12 +14,16 @@ use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\WithPagination;
+
+use function Illuminate\Support\defer;
 
 new #[Title('Administration settings')] class extends Component {
     use WithPagination;
@@ -108,6 +113,8 @@ new #[Title('Administration settings')] class extends Component {
 
     /** @var array{_id:string,tag:string,name:string}|null */
     public ?array $pendingSquadronSelection = null;
+
+    public ?string $forceRefreshError = null;
 
     #region Mounting
     public function mount(): void
@@ -1060,6 +1067,98 @@ new #[Title('Administration settings')] class extends Component {
         return $normalized;
     }
     #endregion
+
+    #region Force refresh
+    public function forceRefreshCooldownMinutes(): int
+    {
+        return max(1, (int) config('peck.force_refresh.cooldown_minutes', 10));
+    }
+
+    #[Computed]
+    public function forceRefreshCooldownSeconds(): int
+    {
+        $startedAt = Cache::get((string) config('peck.force_refresh.lock_key'));
+
+        if (! is_numeric($startedAt)) {
+            return 0;
+        }
+
+        return max(0, ($this->forceRefreshCooldownMinutes() * 60) - (now()->timestamp - (int) $startedAt));
+    }
+
+    #[Computed]
+    public function forceRefreshCooldownLabel(): string
+    {
+        $seconds = $this->forceRefreshCooldownSeconds();
+
+        if ($seconds <= 0) {
+            return '';
+        }
+
+        return sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
+    }
+
+    /**
+     * @return array{status:string,message:string}|null
+     */
+    #[Computed]
+    public function forceRefreshResult(): ?array
+    {
+        $result = Cache::get((string) config('peck.force_refresh.result_key'));
+
+        return is_array($result) ? $result : null;
+    }
+
+    public function requestForceRefresh(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        $this->forceRefreshError = null;
+
+        $lockKey = (string) config('peck.force_refresh.lock_key');
+        $resultKey = (string) config('peck.force_refresh.result_key');
+        $cooldownMinutes = $this->forceRefreshCooldownMinutes();
+        $now = now();
+
+        if (! Cache::add($lockKey, $now->timestamp, $now->copy()->addMinutes($cooldownMinutes))) {
+            $this->forceRefreshError = __('A refresh was started recently. Please try again in :time.', [
+                'time' => $this->forceRefreshCooldownLabel(),
+            ]);
+
+            return;
+        }
+
+        Cache::forget($resultKey);
+
+        $this->dispatch('force-refresh-started');
+
+        defer(function () use ($lockKey, $resultKey, $cooldownMinutes): void {
+            try {
+                $stats = app(RefreshPeckDB::class)->handle();
+
+                Cache::put($resultKey, [
+                    'status' => 'success',
+                    'message' => __('Refresh completed. :created users created, :updated updated, :members members received.', [
+                        'created' => $stats['users_created'],
+                        'updated' => $stats['users_updated'],
+                        'members' => $stats['members_received'],
+                    ]),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::info('Manual PECK database refresh completed.', $stats);
+            } catch (\Throwable $throwable) {
+                Cache::put($resultKey, [
+                    'status' => 'error',
+                    'message' => $throwable->getMessage(),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::error('Manual PECK database refresh failed.', [
+                    'message' => $throwable->getMessage(),
+                ]);
+            }
+        }, 'peck-force-refresh')->always();
+    }
+    #endregion
 };
 ?>
 
@@ -1246,6 +1345,46 @@ new #[Title('Administration settings')] class extends Component {
                     </flux:button>
                 </div>
             </div>
+        </div>
+
+        <div class="mb-6 break-inside-avoid space-y-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/30">
+            <div class="flex items-center gap-2">
+                <flux:heading size="lg">{{ __('Force Refresh') }}</flux:heading>
+            </div>
+
+            <flux:text>{{ __('Re-sync the PECK database from ThunderAPI. Can only be triggered once every :minutes minutes.', ['minutes' => $this->forceRefreshCooldownMinutes()]) }}</flux:text>
+
+            <flux:button type="button" variant="primary" wire:click="requestForceRefresh" wire:loading.attr="disabled" wire:target="requestForceRefresh">
+                {{ __('Force refresh') }}
+            </flux:button>
+
+            @if ($this->forceRefreshCooldownSeconds > 0)
+                <flux:text class="text-sm text-neutral-500 dark:text-neutral-400">
+                    {{ __('Refresh available in :time.', ['time' => $this->forceRefreshCooldownLabel]) }}
+                </flux:text>
+            @endif
+
+            @if ($forceRefreshError)
+                <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100">
+                    {{ $forceRefreshError }}
+                </div>
+            @endif
+
+            @if ($this->forceRefreshResult)
+                @if ($this->forceRefreshResult['status'] === 'success')
+                    <div class="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/40 dark:text-green-100">
+                        {{ $this->forceRefreshResult['message'] }}
+                    </div>
+                @else
+                    <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100">
+                        {{ $this->forceRefreshResult['message'] }}
+                    </div>
+                @endif
+            @endif
+
+            <x-action-message class="me-3" on="force-refresh-started">
+                {{ __('Refresh started.') }}
+            </x-action-message>
         </div>
 
         @if (! $this->squadronIdConfigured)

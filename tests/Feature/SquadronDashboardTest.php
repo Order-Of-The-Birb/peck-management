@@ -6,6 +6,7 @@ use App\Models\PeckUser;
 use App\Models\ThunderApiToken;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
@@ -422,4 +423,204 @@ test('squadron log description and application messages render with the wt-glyph
         ->assertSee('Denied \u250e reason \u253f')
         ->assertSee('A \u250e description \u253f here')
         ->assertSee('wt-glyphs');
+});
+
+test('squadron applications render as cards with applicant details', function () {
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'logs-token',
+    ]);
+
+    $timestamp = 1790000000;
+
+    Http::fake([
+        'https://thunder.example/v1/clans/applicants/*' => Http::response([
+            [
+                'uid' => '12345678',
+                'nickname' => 'ApplicantOne',
+                'timestamp' => $timestamp,
+                'comment' => 'Looking to join the squadron.',
+                'geodata' => ['country' => 'Germany', 'timezone' => 2],
+            ],
+            [
+                'uid' => '87654321',
+                'nickname' => 'ApplicantTwo',
+                'timestamp' => $timestamp,
+                'comment' => '',
+                'geodata' => ['country' => 'United States', 'timezone' => -5],
+            ],
+        ], 200),
+    ]);
+
+    actingAs($user);
+
+    $expectedDatetime = Carbon::createFromTimestamp($timestamp)->format('Y-m-d H:i');
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
+        ->assertSee('ApplicantOne')
+        ->assertSee('#12345678')
+        ->assertSee('ApplicantTwo')
+        ->assertSee('#87654321')
+        ->assertSee('Germany')
+        ->assertSee('UTC+2')
+        ->assertSee('United States')
+        ->assertSee('UTC-5')
+        ->assertSee($expectedDatetime);
+});
+
+test('squadron applications show an empty state when there are no applicants', function () {
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'logs-token',
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/applicants/*' => Http::response([], 200),
+    ]);
+
+    actingAs($user);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
+        ->assertSee('There are no applicants currently.')
+        ->assertDontSee('openApplicantModal');
+});
+
+test('squadron applications show an error when thunderapi is unreachable', function () {
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'logs-token',
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/applicants/*' => function (): never {
+            throw new ConnectionException('cURL error 7: Failed to connect');
+        },
+    ]);
+
+    actingAs($user);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
+        ->assertSee('Unable to reach ThunderAPI. Please try again later.');
+});
+
+test('opening an application modal shows the applicants details and comment', function () {
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'logs-token',
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/applicants/*' => Http::response([
+            [
+                'uid' => '12345678',
+                'nickname' => 'ApplicantOne',
+                'timestamp' => 1790000000,
+                'comment' => 'Looking to join the squadron.',
+                'geodata' => ['country' => 'Germany', 'timezone' => 2],
+            ],
+        ], 200),
+    ]);
+
+    actingAs($user);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
+        ->call('openApplicantModal', '12345678')
+        ->assertSet('showApplicantModal', true)
+        ->assertSee('ApplicantOne')
+        ->assertSee('#12345678')
+        ->assertSee('Germany')
+        ->assertSee('UTC+2')
+        ->assertSee('Looking to join the squadron.')
+        ->assertSee('Comment');
+});
+
+test('accepting an application posts to the accept endpoint and refreshes the list', function () {
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'logs-token',
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/applicants/*' => Http::sequence()
+            ->push([
+                [
+                    'uid' => '12345678',
+                    'nickname' => 'ApplicantOne',
+                    'timestamp' => 1790000000,
+                    'comment' => '',
+                    'geodata' => ['country' => 'Germany', 'timezone' => 2],
+                ],
+            ], 200)
+            ->push([], 200),
+        'https://thunder.example/v1/clans/accept/*' => Http::response(['status' => 'success'], 200),
+    ]);
+
+    actingAs($user);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
+        ->assertSee('ApplicantOne')
+        ->call('openApplicantModal', '12345678')
+        ->call('acceptApplicant')
+        ->assertSet('showApplicantModal', false)
+        ->assertSet('selectedApplicantUid', null)
+        ->assertSee('There are no applicants currently.');
+
+    Http::assertSent(function ($request): bool {
+        return $request->url() === 'https://thunder.example/v1/clans/accept/12345678'
+            && $request->method() === 'POST';
+    });
+});
+
+test('rejecting an application posts a reason to the reject endpoint', function () {
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'logs-token',
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/applicants/*' => Http::sequence()
+            ->push([
+                [
+                    'uid' => '12345678',
+                    'nickname' => 'ApplicantOne',
+                    'timestamp' => 1790000000,
+                    'comment' => '',
+                    'geodata' => ['country' => 'Germany', 'timezone' => 2],
+                ],
+            ], 200)
+            ->push([], 200),
+        'https://thunder.example/v1/clans/reject/*' => Http::response(['status' => 'success'], 200),
+    ]);
+
+    actingAs($user);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
+        ->call('openApplicantModal', '12345678')
+        ->call('openRejectApplicantModal')
+        ->set('rejectApplicantReason', 'Not a good fit')
+        ->call('confirmRejectApplicant')
+        ->assertSet('showRejectApplicantModal', false)
+        ->assertSee('There are no applicants currently.');
+
+    Http::assertSent(function ($request): bool {
+        $query = [];
+
+        parse_str(parse_url($request->url(), PHP_URL_QUERY) ?? '', $query);
+
+        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/reject/12345678')
+            && $request->method() === 'POST'
+            && ($query['message'] ?? null) === 'Not a good fit';
+    });
 });

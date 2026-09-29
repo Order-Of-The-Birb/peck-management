@@ -62,6 +62,27 @@ class PeckUsersDashboard extends Component
 
     public bool $squadronLogsHasMore = false;
 
+    /**
+     * @var list<array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}>
+     */
+    public array $squadronApplicants = [];
+
+    public bool $squadronApplicantsLoading = false;
+
+    public bool $squadronApplicantsFailed = false;
+
+    public string $squadronApplicantsErrorMessage = '';
+
+    public bool $showApplicantModal = false;
+
+    public ?string $selectedApplicantUid = null;
+
+    public bool $showRejectApplicantModal = false;
+
+    public string $rejectApplicantReason = '';
+
+    public string $applicantActionError = '';
+
     public bool $showMasterEditModal = false;
 
     public bool $showAddSlaveModal = false;
@@ -197,6 +218,10 @@ class PeckUsersDashboard extends Component
 
         if ($this->section === 'squadron_logs') {
             $this->loadSquadronLogs();
+        }
+
+        if ($this->section === 'squadron_applications') {
+            $this->loadSquadronApplicants();
         }
     }
 
@@ -703,6 +728,188 @@ class PeckUsersDashboard extends Component
         return is_numeric($gaijinId)
             ? $nickname.' (#'.$gaijinId.')'
             : $nickname;
+    }
+
+    public function loadSquadronApplicants(): void
+    {
+        if ($this->squadronBlockReason() !== null) {
+            return;
+        }
+
+        $clanId = (string) config('peck.squadron_id');
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null || $clanId === '') {
+            return;
+        }
+
+        $this->squadronApplicantsLoading = true;
+        $this->squadronApplicantsFailed = false;
+        $this->squadronApplicantsErrorMessage = '';
+
+        try {
+            $applicants = app(ThunderApi::class)->getClanApplicants($token->token, $clanId);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            $this->squadronApplicantsLoading = false;
+            $this->squadronApplicantsFailed = true;
+            $this->squadronApplicantsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->squadronApplicantsLoading = false;
+            $this->squadronApplicantsFailed = true;
+            $this->squadronApplicantsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->squadronApplicantsLoading = false;
+            $this->squadronApplicantsFailed = true;
+            $this->squadronApplicantsErrorMessage = __('ThunderAPI could not be reached.');
+
+            return;
+        }
+
+        $this->squadronApplicants = array_map(fn (array $applicant): array => $this->normalizeSquadronApplicant($applicant), $applicants);
+        $this->squadronApplicantsLoading = false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $applicant
+     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}
+     */
+    protected function normalizeSquadronApplicant(array $applicant): array
+    {
+        $uid = $applicant['uid'] ?? null;
+        $geodata = $applicant['geodata'] ?? null;
+        $country = is_array($geodata) ? ($geodata['country'] ?? null) : null;
+        $timezone = is_array($geodata) ? ($geodata['timezone'] ?? null) : null;
+        $timestamp = $applicant['timestamp'] ?? null;
+
+        return [
+            'uid' => is_numeric($uid) ? (string) $uid : '',
+            'nickname' => (string) ($applicant['nickname'] ?? ''),
+            'timestamp' => is_numeric($timestamp) ? Carbon::createFromTimestamp((int) $timestamp)->format('Y-m-d H:i') : null,
+            'country' => is_string($country) && $country !== '' ? $country : null,
+            'timezone' => is_int($timezone) ? $this->formatSquadronTimezone($timezone) : null,
+            'comment' => (string) ($applicant['comment'] ?? ''),
+        ];
+    }
+
+    protected function formatSquadronTimezone(int $timezone): string
+    {
+        return 'UTC'.($timezone >= 0 ? '+' : '').$timezone;
+    }
+
+    /**
+     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}|null
+     */
+    public function selectedApplicant(): ?array
+    {
+        if ($this->selectedApplicantUid === null) {
+            return null;
+        }
+
+        foreach ($this->squadronApplicants as $applicant) {
+            if ($applicant['uid'] === $this->selectedApplicantUid) {
+                return $applicant;
+            }
+        }
+
+        return null;
+    }
+
+    public function openApplicantModal(string $uid): void
+    {
+        $this->selectedApplicantUid = $uid;
+        $this->applicantActionError = '';
+        $this->showApplicantModal = true;
+    }
+
+    public function closeApplicantModal(): void
+    {
+        $this->showApplicantModal = false;
+        $this->selectedApplicantUid = null;
+        $this->showRejectApplicantModal = false;
+        $this->rejectApplicantReason = '';
+        $this->applicantActionError = '';
+    }
+
+    public function openRejectApplicantModal(): void
+    {
+        $this->rejectApplicantReason = '';
+        $this->applicantActionError = '';
+        $this->showRejectApplicantModal = true;
+    }
+
+    public function cancelRejectApplicant(): void
+    {
+        $this->showRejectApplicantModal = false;
+        $this->rejectApplicantReason = '';
+        $this->applicantActionError = '';
+    }
+
+    public function acceptApplicant(): void
+    {
+        $this->performApplicantAction('accept');
+    }
+
+    public function confirmRejectApplicant(): void
+    {
+        $this->performApplicantAction('reject', $this->rejectApplicantReason);
+    }
+
+    public function performApplicantAction(string $action, string $message = ''): void
+    {
+        $uid = $this->selectedApplicantUid;
+
+        if ($uid === null || ! in_array($action, ['accept', 'reject'], true)) {
+            return;
+        }
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null) {
+            $this->applicantActionError = __('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+
+            return;
+        }
+
+        $this->applicantActionError = '';
+
+        try {
+            if ($action === 'accept') {
+                app(ThunderApi::class)->acceptApplicant($token->token, $uid);
+            } else {
+                app(ThunderApi::class)->rejectApplicant($token->token, $uid, $message);
+            }
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            $this->applicantActionError = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->applicantActionError = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->applicantActionError = __('ThunderAPI could not be reached.');
+
+            return;
+        }
+
+        $this->showRejectApplicantModal = false;
+        $this->rejectApplicantReason = '';
+        $this->selectedApplicantUid = null;
+        $this->showApplicantModal = false;
+        $this->loadSquadronApplicants();
     }
 
     /**
