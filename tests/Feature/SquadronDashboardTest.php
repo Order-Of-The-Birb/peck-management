@@ -14,6 +14,7 @@ use function Pest\Laravel\actingAs;
 
 beforeEach(function () {
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_refresh.refresh_after_hours', 1);
     config()->set('peck.squadron_id', '1061551');
 });
 
@@ -50,6 +51,26 @@ test('squadron pages are blocked with a settings button when thunderapi is not l
         ->assertSee('ThunderAPI connection required')
         ->assertSee('Open Settings')
         ->assertDontSee('Squadron not set up');
+
+    Http::assertNothingSent();
+});
+
+test('the thunderapi block prompt can be dismissed without loading data', function () {
+    $user = User::factory()->create();
+
+    Http::fake();
+
+    actingAs($user);
+
+    $component = Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_logs'])
+        ->assertSee('ThunderAPI connection required')
+        ->assertSeeHtml('wire:click.self="dismissThunderPrompt"')
+        ->assertSeeHtml('wire:click="dismissThunderPrompt"');
+
+    $component
+        ->call('dismissThunderPrompt')
+        ->assertDontSee('ThunderAPI connection required')
+        ->assertSee('No logs found.');
 
     Http::assertNothingSent();
 });

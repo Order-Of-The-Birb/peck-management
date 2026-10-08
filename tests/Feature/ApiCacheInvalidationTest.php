@@ -41,11 +41,11 @@ test('peck user observer dispatches cache invalidation job on create update and 
 
     $peckUser = PeckUser::factory()->create([
         'gaijin_id' => 920001,
-        'username' => 'observer_create_target',
+        'status' => 'member',
     ]);
 
     $peckUser->update([
-        'username' => 'observer_update_target',
+        'status' => 'ex_member',
     ]);
 
     $peckUser->delete();

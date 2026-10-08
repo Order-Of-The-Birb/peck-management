@@ -20,12 +20,9 @@ class PeckUserResource extends JsonResource
 
         return [
             'gaijin_id' => $peckUser->gaijin_id,
-            'username' => $peckUser->username,
             'discord_id' => $peckUser->discord_id,
             'tz' => $peckUser->tz,
             'status' => $peckUser->status,
-            'joindate' => $peckUser->joindate?->format('Y-m-d'),
-            'initiator' => $peckUser->initiator,
             'sqb_part' => $peckUser->sqb_part,
         ];
     }

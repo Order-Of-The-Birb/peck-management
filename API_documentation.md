@@ -43,23 +43,19 @@ User responses return these fields:
 ```json  
 {  
 	"gaijin_id": 820003,  
-	"username": "created_via_api",  
 	"discord_id": 123456789012345678,  
 	"tz": 1,  
 	"status": "member",  
-	"joindate": "2026-03-24",  
-	"initiator": 820002  
+	"sqb_part": null  
 }  
 ```  
 
 Field notes:  
 - `gaijin_id` (integer): Primary identifier.  
-- `username` (string, max 255).  
 - `discord_id` (integer, nullable).  
 - `tz` (integer, nullable, range `-11` to `12`).  
 - `status` (string): one of `applicant`, `unverified`, `ex_member`, `member`.  
-- `joindate` (string, nullable): format `YYYY-MM-DD`.  
-- `initiator` (integer, nullable): must exist in `officers.gaijin_id` and cannot equal the target user's `gaijin_id`.  
+- `sqb_part` (boolean, nullable).  
 
 ## Leave Info Type  
 Allowed values:  
@@ -104,10 +100,10 @@ Response `202`:
 `GET /api/v1/users`  
 
 Query parameters:  
-- `search` (string, optional, max 255): matches `gaijin_id`, `username`, or `discord_id` using partial match.  
+- `search` (string, optional, max 255): matches `gaijin_id` or `discord_id` using partial match.  
 - `status` (string, optional): `applicant | unverified | ex_member | member`  
 - `tz` (integer, optional): `-11..12`  
-- `sort_by` (string, optional): `gaijin_id | username | status | discord_id | tz | joindate | initiator` (default `gaijin_id`)  
+- `sort_by` (string, optional): `gaijin_id | status | discord_id | tz | sqb_part` (default `gaijin_id`)  
 - `sort_direction` (string, optional): `asc | desc` (default `asc`)  
 - `per_page` (integer, optional): `1..100` (default `15`)  
 - `page` (integer, optional): `>= 1` (default `1`)  
@@ -119,12 +115,10 @@ Response `200`:
 	"data": [  
 		{  
 		"gaijin_id": 800002,  
-		"username": "api_target",  
 		"discord_id": null,  
 		"tz": 2,  
 		"status": "member",  
-		"joindate": null,  
-		"initiator": 800001  
+		"sqb_part": null  
 		}  
 	]  
 }  
@@ -142,12 +136,10 @@ Response `200`:
 {  
 	"data": {  
 		"gaijin_id": 810001,  
-		"username": "show_target",  
 		"discord_id": null,  
 		"tz": null,  
 		"status": "unverified",  
-		"joindate": null,  
-		"initiator": null  
+		"sqb_part": null  
 	}  
 }  
 ```  
@@ -160,14 +152,12 @@ Possible errors:
 
 Required body fields:  
 - `gaijin_id` (integer, unique)  
-- `username` (string, max 255, unique)  
 - `status` (`applicant | unverified | ex_member | member`)  
 
 Optional body fields:  
 - `discord_id` (integer, nullable)  
 - `tz` (integer, nullable, `-11..12`)  
-- `joindate` (string, nullable, `YYYY-MM-DD`)  
-- `initiator` (integer, nullable, must exist in officers table, cannot equal `gaijin_id`)  
+- `sqb_part` (boolean, nullable)  
 - `token` (string, if authenticating via body)  
 
 Response `201`:  
@@ -176,12 +166,10 @@ Response `201`:
 {  
 	"data": {  
 		"gaijin_id": 820003,  
-		"username": "created_via_api",  
 		"discord_id": 123456789012345678,  
 		"tz": 1,  
 		"status": "member",  
-		"joindate": "2026-03-24",  
-		"initiator": 820002  
+		"sqb_part": null  
 	}  
 }  
 ```  
@@ -195,12 +183,10 @@ Possible errors:
 `PATCH /api/v1/users/{gaijin_id}`  
 
 Body fields are all optional, but validated when present:  
-- `username` (string, max 255, unique except current user)  
 - `discord_id` (integer, nullable)  
 - `tz` (integer, nullable, `-11..12`)  
 - `status` (`applicant | unverified | ex_member | member`)  
-- `joindate` (string, nullable, `YYYY-MM-DD`)  
-- `initiator` (integer, nullable, must exist in officers table, cannot equal target `gaijin_id`)  
+- `sqb_part` (boolean, nullable)  
 - `token` (string, if authenticating via body)  
 
 Response `200`:  
@@ -209,12 +195,10 @@ Response `200`:
 {  
 	"data": {  
 		"gaijin_id": 830001,  
-		"username": "patched_user",  
 		"discord_id": null,  
 		"tz": null,  
 		"status": "member",  
-		"joindate": null,  
-		"initiator": 830002  
+		"sqb_part": null  
 	}  
 }  
 ```  

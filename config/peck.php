@@ -4,6 +4,13 @@ return [
     'squadron_name' => env('SQUADRON_NAME', 'Order Of The Birb'),
     'squadron_id' => env('SQUADRON_ID'),
     'thunderapi_base_url' => env('THUNDERAPI_BASE_URL'),
+    'thunderapi_server' => [
+        'email' => env('THUNDERAPI_EMAIL'),
+        'password' => env('THUNDERAPI_PASS'),
+    ],
+    'thunderapi_members' => [
+        'cache_seconds' => (int) env('THUNDERAPI_MEMBER_CACHE_SECONDS', 300),
+    ],
     'refresh_schedule' => env('REFRESH_SCHEDULE', '0:00'),
     'auto_refresh_enabled' => env('AUTO_REFRESH_ENABLED', env('APP_ENV') !== 'testing'),
     'auto_refresh' => [

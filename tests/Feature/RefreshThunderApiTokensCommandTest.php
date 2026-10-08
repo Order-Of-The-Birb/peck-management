@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_server.email', null);
+    config()->set('peck.thunderapi_server.password', null);
 });
 
 test('refresh command refreshes due tokens and updates their expiry', function () {

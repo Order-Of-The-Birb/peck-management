@@ -30,12 +30,9 @@ class UserController extends Controller
             'tz' => ['nullable', 'integer', 'between:-11,12'],
             'sort_by' => ['nullable', 'string', Rule::in([
                 'gaijin_id',
-                'username',
                 'status',
                 'discord_id',
                 'tz',
-                'joindate',
-                'initiator',
                 'sqb_part',
             ])],
             'sort_direction' => ['nullable', 'string', Rule::in(['asc', 'desc'])],
@@ -50,14 +47,12 @@ class UserController extends Controller
         $page = $validated['page'] ?? 1;
 
         $users = PeckUser::query()
-            ->with(['initiatorUser', 'initiatorOfficer'])
             ->when($searchTerm !== null && $searchTerm !== '', function ($query) use ($searchTerm): void {
                 $likeSearchTerm = '%'.$searchTerm.'%';
 
                 $query->where(function ($innerQuery) use ($likeSearchTerm): void {
                     $innerQuery
                         ->where('gaijin_id', 'like', $likeSearchTerm)
-                        ->orWhere('username', 'like', $likeSearchTerm)
                         ->orWhere('discord_id', 'like', $likeSearchTerm);
                 });
             })
@@ -88,8 +83,6 @@ class UserController extends Controller
     {
         $peckUser = PeckUser::query()->create($request->validated());
 
-        $peckUser->load(['initiatorUser', 'initiatorOfficer']);
-
         return (new PeckUserResource($peckUser))
             ->response()
             ->setStatusCode(201);
@@ -97,8 +90,6 @@ class UserController extends Controller
 
     public function show(PeckUser $peckUser): PeckUserResource
     {
-        $peckUser->load(['initiatorUser', 'initiatorOfficer']);
-
         return new PeckUserResource($peckUser);
     }
 
@@ -116,8 +107,6 @@ class UserController extends Controller
                 ->where('user_id', $previousGaijinId)
                 ->delete();
         }
-
-        $peckUser->load(['initiatorUser', 'initiatorOfficer']);
 
         return new PeckUserResource($peckUser);
     }

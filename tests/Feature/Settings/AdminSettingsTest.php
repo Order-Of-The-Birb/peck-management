@@ -4,7 +4,7 @@ use App\Models\ApiKey;
 use App\Models\Officer;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
-use App\Models\ThunderApiToken;
+use App\Models\ThunderApiServerToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -230,13 +230,12 @@ test('officer add modal pre-fills selected user from officer search', function (
 
     $peckUser = PeckUser::factory()->create([
         'gaijin_id' => 910001,
-        'username' => 'searchable_officer_user',
     ]);
 
     $this->actingAs($admin);
 
     Livewire::test('pages::settings.admin')
-        ->set('officerSearch', $peckUser->username)
+        ->set('officerSearch', (string) $peckUser->gaijin_id)
         ->call('openAddOfficerModal')
         ->assertSet('newOfficerForm.gaijin_id', (string) $peckUser->gaijin_id);
 });
@@ -255,12 +254,10 @@ test('switching commander rank swaps the existing commander to officer rank', fu
 
     $currentCommander = PeckUser::factory()->create([
         'gaijin_id' => 910010,
-        'username' => 'current_commander',
     ]);
 
     $newCommander = PeckUser::factory()->create([
         'gaijin_id' => 910011,
-        'username' => 'new_commander',
     ]);
 
     Officer::query()->create([
@@ -300,12 +297,10 @@ test('switching deputy from add flow sets previous deputy to retired when they h
 
     $currentDeputy = PeckUser::factory()->create([
         'gaijin_id' => 910020,
-        'username' => 'current_deputy',
     ]);
 
     $replacementDeputy = PeckUser::factory()->create([
         'gaijin_id' => 910021,
-        'username' => 'replacement_deputy',
     ]);
 
     Officer::query()->create([
@@ -347,12 +342,10 @@ test('switching deputy from add flow sets previous deputy to officer when they h
 
     $currentDeputy = PeckUser::factory()->create([
         'gaijin_id' => 910030,
-        'username' => 'current_deputy_no_leave',
     ]);
 
     $replacementDeputy = PeckUser::factory()->create([
         'gaijin_id' => 910031,
-        'username' => 'replacement_deputy_no_leave',
     ]);
 
     Officer::query()->create([
@@ -389,27 +382,25 @@ test('delete user section filters war thunder users and shows empty state', func
 
     $matchingPeckUser = PeckUser::factory()->create([
         'gaijin_id' => 910040,
-        'username' => 'delete_filter_target',
     ]);
 
     $nonMatchingPeckUser = PeckUser::factory()->create([
         'gaijin_id' => 910041,
-        'username' => 'delete_filter_other',
     ]);
 
     $this->actingAs($admin);
 
     $component = Livewire::test('pages::settings.admin')
-        ->set('peckUserDeletionSearch', $matchingPeckUser->username);
+        ->set('peckUserDeletionSearch', (string) $matchingPeckUser->gaijin_id);
 
     $filteredPeckUsers = $component->get('filteredPeckUsersForDeletion');
 
     expect($filteredPeckUsers)->toHaveCount(1);
-    expect($filteredPeckUsers->pluck('username')->all())->toBe([$matchingPeckUser->username]);
-    expect($filteredPeckUsers->pluck('username')->all())->not->toContain($nonMatchingPeckUser->username);
+    expect($filteredPeckUsers->pluck('gaijin_id')->all())->toBe([$matchingPeckUser->gaijin_id]);
+    expect($filteredPeckUsers->pluck('gaijin_id')->all())->not->toContain($nonMatchingPeckUser->gaijin_id);
 
     $component
-        ->set('peckUserDeletionSearch', 'not_found_username')
+        ->set('peckUserDeletionSearch', '999999999')
         ->assertSee('No users match your search.');
 });
 
@@ -433,12 +424,10 @@ test('admin can delete a war thunder user without affecting laravel auth users',
 
     $targetPeckUser = PeckUser::factory()->create([
         'gaijin_id' => 910050,
-        'username' => 'war_thunder_delete_target',
     ]);
 
     $remainingPeckUser = PeckUser::factory()->create([
         'gaijin_id' => 910051,
-        'username' => 'war_thunder_keep_target',
     ]);
 
     $this->actingAs($admin);
@@ -446,7 +435,7 @@ test('admin can delete a war thunder user without affecting laravel auth users',
     Livewire::test('pages::settings.admin')
         ->call('openDeletePeckUserModal', $targetPeckUser->gaijin_id)
         ->assertSet('showDeletePeckUserModal', true)
-        ->assertSet('pendingDeletePeckUserDetails.username', $targetPeckUser->username)
+        ->assertSet('pendingDeletePeckUserDetails.gaijin_id', $targetPeckUser->gaijin_id)
         ->call('deletePeckUser')
         ->assertSet('showDeletePeckUserModal', false)
         ->assertDispatched('peck-user-deleted');
@@ -470,7 +459,6 @@ test('non-admin users cannot trigger war thunder user deletion from admin settin
 
     $targetPeckUser = PeckUser::factory()->create([
         'gaijin_id' => 910060,
-        'username' => 'non_admin_delete_target',
     ]);
 
     $this->actingAs($viewer);
@@ -494,7 +482,6 @@ test('delete user action reports a graceful error when selected user is already 
 
     $targetPeckUser = PeckUser::factory()->create([
         'gaijin_id' => 910070,
-        'username' => 'delete_missing_target',
     ]);
 
     $this->actingAs($admin);
@@ -531,7 +518,7 @@ test('admin can force a refresh with a global ten minute cooldown', function () 
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
 
-    ThunderApiToken::factory()->create(['token' => 'test-token']);
+    ThunderApiServerToken::factory()->create(['token' => 'test-token']);
 
     Cache::forget((string) config('peck.force_refresh.lock_key'));
 
@@ -578,7 +565,7 @@ test('force refresh surfaces an error when thunderapi rejects the token', functi
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
 
-    ThunderApiToken::factory()->create(['token' => 'test-token']);
+    ThunderApiServerToken::factory()->create(['token' => 'test-token']);
 
     Cache::forget((string) config('peck.force_refresh.lock_key'));
     Cache::forget((string) config('peck.force_refresh.result_key'));
@@ -594,7 +581,7 @@ test('force refresh surfaces an error when thunderapi rejects the token', functi
         ->assertSee('Failed to search for squadron (HTTP 401)');
 });
 
-test('force refresh surfaces a clear error when the token is invalid', function () {
+test('force refresh re-authenticates when the server token is invalid', function () {
     $this->withoutDefer();
 
     $admin = User::query()->create([
@@ -612,9 +599,12 @@ test('force refresh surfaces a clear error when the token is invalid', function 
 
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_refresh.refresh_after_hours', 1);
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
 
-    ThunderApiToken::factory()->create([
-        'token' => 'test-token',
+    ThunderApiServerToken::factory()->create([
+        'token' => 'stale-token',
         'refreshed_at' => now()->subHours(2),
     ]);
 
@@ -626,9 +616,22 @@ test('force refresh surfaces a clear error when the token is invalid', function 
             'status' => 'FAIL',
             'detail' => 'Invalid token',
         ], 404),
+        'https://thunder.example/v1/login' => Http::response([
+            'status' => 'OK',
+            'token' => 'replacement-token',
+            'user_id' => 424242,
+        ], 200),
+        'https://thunder.example/v1/clans/search/*' => Http::response([
+            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        ], 200),
+        'https://thunder.example/v1/clans/123' => Http::response([
+            'members' => [],
+        ], 200),
     ]);
 
     Livewire::test('pages::settings.admin')
         ->call('requestForceRefresh')
-        ->assertSee('Your ThunderAPI token is no longer valid');
+        ->assertSee('Refresh completed');
+
+    expect(ThunderApiServerToken::query()->value('token'))->toBe('replacement-token');
 });

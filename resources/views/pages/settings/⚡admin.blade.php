@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\RefreshPeckDB;
+use App\Actions\ResolveUsernames;
 use App\Actions\ThunderApi;
 use App\Actions\ThunderApiException;
 use App\Actions\ThunderApiUnauthorizedException;
@@ -89,7 +90,7 @@ new #[Title('Administration settings')] class extends Component {
 
     public ?int $pendingDeletePeckUserGaijinId = null;
 
-    /** @var array{gaijin_id:int,username:string,status:string,discord_id:?int,joindate:?string}|null */
+    /** @var array{gaijin_id:int,username:?string,status:string,discord_id:?int}|null */
     public ?array $pendingDeletePeckUserDetails = null;
 
     public bool $showDeletePeckUserError = false;
@@ -375,6 +376,21 @@ new #[Title('Administration settings')] class extends Component {
         };
     }
 
+    protected function attachUsernames(Collection $users): void
+    {
+        $gaijinIds = $users
+            ->pluck('gaijin_id')
+            ->map(static fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
+
+        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds);
+
+        foreach ($users as $user) {
+            $user->setAttribute('username', $usernames[$user->gaijin_id] ?? null);
+        }
+    }
+
     #[Computed]
     public function officerRecords(): LengthAwarePaginator
     {
@@ -384,20 +400,16 @@ new #[Title('Administration settings')] class extends Component {
 
         $searchTerm = trim($this->officerSearch);
 
-        return Officer::query()
-            ->select('officers.gaijin_id', 'officers.rank')
-            ->join('peck_users', 'peck_users.gaijin_id', '=', 'officers.gaijin_id')
-            ->with('peckUser')
+        $officers = Officer::query()
             ->when($searchTerm !== '', function ($query) use ($searchTerm): void {
-                $query->where(function ($innerQuery) use ($searchTerm): void {
-                    $innerQuery
-                        ->where('peck_users.username', 'like', '%'.$searchTerm.'%')
-                        ->orWhere('officers.gaijin_id', 'like', '%'.$searchTerm.'%');
-                });
+                $query->where('officers.gaijin_id', 'like', '%'.$searchTerm.'%');
             })
-            ->orderBy('peck_users.username')
             ->orderBy('officers.gaijin_id')
-            ->paginate(15, ['officers.*'], 'officers-page');
+            ->paginate(15, ['*'], 'officers-page');
+
+        $this->attachUsernames($officers->getCollection());
+
+        return $officers;
     }
 
     #[Computed]
@@ -407,10 +419,13 @@ new #[Title('Administration settings')] class extends Component {
             return collect();
         }
 
-        return PeckUser::query()
-            ->orderBy('username')
+        $users = PeckUser::query()
             ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+            ->get(['gaijin_id']);
+
+        $this->attachUsernames($users);
+
+        return $users;
     }
 
     public function openAddOfficerModal(): void
@@ -594,15 +609,17 @@ new #[Title('Administration settings')] class extends Component {
         Officer $conflictingOfficer,
         bool $isCreate,
     ): void {
-        $targetPeckUser = PeckUser::query()->find($targetGaijinId, ['gaijin_id', 'username']);
-        $conflictingPeckUser = PeckUser::query()->find($conflictingOfficer->gaijin_id, ['gaijin_id', 'username']);
+        $usernames = app(ResolveUsernames::class)->resolve([
+            $targetGaijinId,
+            $conflictingOfficer->gaijin_id,
+        ]);
 
         $this->pendingRankTargetGaijinId = $targetGaijinId;
-        $this->pendingRankTargetUsername = $targetPeckUser?->username;
+        $this->pendingRankTargetUsername = $usernames[$targetGaijinId] ?? null;
         $this->pendingRankTargetCurrentRank = $targetCurrentRank;
         $this->pendingRankTargetRequestedRank = $targetRequestedRank;
         $this->pendingRankConflictingGaijinId = $conflictingOfficer->gaijin_id;
-        $this->pendingRankConflictingUsername = $conflictingPeckUser?->username;
+        $this->pendingRankConflictingUsername = $usernames[$conflictingOfficer->gaijin_id] ?? null;
         $this->pendingRankIsCreate = $isCreate;
         $this->pendingRankReplacementLabel = $this->officerRankLabel(
             $this->determineSwitchedRankForConflictingOfficer(
@@ -630,18 +647,11 @@ new #[Title('Administration settings')] class extends Component {
     {
         $searchTerm = trim($search);
 
-        if ($searchTerm === '') {
+        if ($searchTerm === '' || ! ctype_digit($searchTerm)) {
             return null;
         }
 
-        if (ctype_digit($searchTerm)) {
-            return PeckUser::query()->find((int) $searchTerm, ['gaijin_id', 'username']);
-        }
-
-        return PeckUser::query()
-            ->where('username', 'like', '%'.$searchTerm.'%')
-            ->orderBy('username')
-            ->first(['gaijin_id', 'username']);
+        return PeckUser::query()->find((int) $searchTerm, ['gaijin_id']);
     }
 
     protected function normalizeOfficerRank(?string $rank): ?string
@@ -693,20 +703,23 @@ new #[Title('Administration settings')] class extends Component {
 
         $searchTerm = trim($this->peckUserDeletionSearch);
 
-        return PeckUser::query()
+        $users = PeckUser::query()
             ->when($searchTerm !== '', function ($query) use ($searchTerm): void {
-                $query->where('username', 'like', '%'.$searchTerm.'%');
+                $query->where('gaijin_id', 'like', '%'.$searchTerm.'%');
             })
-            ->orderBy('username')
             ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+            ->get(['gaijin_id']);
+
+        $this->attachUsernames($users);
+
+        return $users;
     }
 
     public function openDeletePeckUserModal(int $gaijinId): void
     {
         abort_unless($this->canManageUserLevels(), 403);
 
-        $peckUser = PeckUser::query()->find($gaijinId, ['gaijin_id', 'username', 'status', 'discord_id', 'joindate']);
+        $peckUser = PeckUser::query()->find($gaijinId, ['gaijin_id', 'status', 'discord_id']);
 
         if (! $peckUser instanceof PeckUser) {
             $this->showDeletePeckUserError = true;
@@ -721,10 +734,9 @@ new #[Title('Administration settings')] class extends Component {
         $this->pendingDeletePeckUserGaijinId = $peckUser->gaijin_id;
         $this->pendingDeletePeckUserDetails = [
             'gaijin_id' => $peckUser->gaijin_id,
-            'username' => $peckUser->username,
+            'username' => app(ResolveUsernames::class)->resolve([$peckUser->gaijin_id])[$peckUser->gaijin_id] ?? null,
             'status' => $peckUser->status,
             'discord_id' => $peckUser->discord_id,
-            'joindate' => $peckUser->joindate?->toDateTimeString(),
         ];
         $this->showDeletePeckUserModal = true;
         $this->dismissDeletePeckUserError();
@@ -1228,7 +1240,7 @@ new #[Title('Administration settings')] class extends Component {
             </div>
 
             <div class="space-y-4">
-                <flux:input wire:model.live.debounce.300ms="officerSearch" :label="__('Search by username or Gaijin ID')" />
+                <flux:input wire:model.live.debounce.300ms="officerSearch" :label="__('Search by Gaijin ID')" />
 
                 <div class="overflow-x-auto">
                     <table class="w-full min-w-full table-fixed divide-y divide-neutral-200 text-left text-sm dark:divide-neutral-700">
@@ -1243,7 +1255,7 @@ new #[Title('Administration settings')] class extends Component {
                             @forelse ($this->officerRecords as $officerRecord)
                                 <tr wire:key="officer-row-{{ $officerRecord->gaijin_id }}">
                                     <td class="px-3 py-2 font-medium">{{ $officerRecord->gaijin_id }}</td>
-                                    <td class="px-3 py-2">{{ $officerRecord->peckUser?->username ?? '—' }}</td>
+                                    <td class="px-3 py-2">{{ $officerRecord->username ?? '—' }}</td>
                                     <td class="px-3 py-2">
                                         <select
                                             wire:change="attemptOfficerRankUpdate({{ $officerRecord->gaijin_id }}, $event.target.value)"
@@ -1287,19 +1299,19 @@ new #[Title('Administration settings')] class extends Component {
             </div>
 
             <div class="space-y-3">
-                <flux:input wire:model.live.debounce.300ms="peckUserDeletionSearch" :label="__('Search by username')" />
+                <flux:input wire:model.live.debounce.300ms="peckUserDeletionSearch" :label="__('Search by Gaijin ID')" />
 
                 <div class="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
                     <div class="max-h-56 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
                         @forelse ($this->filteredPeckUsersForDeletion as $filteredPeckUser)
                             <div wire:key="delete-peck-user-row-{{ $filteredPeckUser->gaijin_id }}" class="flex items-center justify-between gap-3 px-3 py-2">
-                                <flux:text>{{ $filteredPeckUser->username }}</flux:text>
+                                <flux:text>{{ $filteredPeckUser->username ?? $filteredPeckUser->gaijin_id }}</flux:text>
 
                                 <button
                                     type="button"
                                     wire:click="openDeletePeckUserModal({{ $filteredPeckUser->gaijin_id }})"
                                     class="rounded-md p-2 text-neutral-500 transition hover:bg-red-50 hover:text-red-600 dark:text-neutral-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
-                                    aria-label="{{ __('Delete :username', ['username' => $filteredPeckUser->username]) }}"
+                                    aria-label="{{ __('Delete :username', ['username' => $filteredPeckUser->username ?? $filteredPeckUser->gaijin_id]) }}"
                                 >
                                     <flux:icon.trash class="size-4" />
                                 </button>
@@ -1456,7 +1468,7 @@ new #[Title('Administration settings')] class extends Component {
                         <option value="">{{ __('Select a user') }}</option>
                         @foreach ($this->officerSelectableUsers as $officerSelectableUser)
                             <option value="{{ $officerSelectableUser->gaijin_id }}">
-                                {{ $officerSelectableUser->username }} ({{ $officerSelectableUser->gaijin_id }})
+                                {{ $officerSelectableUser->username ?? $officerSelectableUser->gaijin_id }} ({{ $officerSelectableUser->gaijin_id }})
                             </option>
                         @endforeach
                     </flux:select>
@@ -1567,7 +1579,6 @@ new #[Title('Administration settings')] class extends Component {
                     <flux:text>{{ __('Gaijin ID: :gaijinId', ['gaijinId' => $pendingDeletePeckUserDetails['gaijin_id'] ?? '—']) }}</flux:text>
                     <flux:text>{{ __('Status: :status', ['status' => $pendingDeletePeckUserDetails['status'] ?? '—']) }}</flux:text>
                     <flux:text>{{ __('Discord ID: :discordId', ['discordId' => $pendingDeletePeckUserDetails['discord_id'] ?? '—']) }}</flux:text>
-                    <flux:text>{{ __('Join date: :joinDate', ['joinDate' => $pendingDeletePeckUserDetails['joindate'] ?? '—']) }}</flux:text>
                 </div>
 
                 <div class="flex flex-wrap items-center justify-end gap-3">

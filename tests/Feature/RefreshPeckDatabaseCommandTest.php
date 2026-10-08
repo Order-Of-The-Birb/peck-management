@@ -1,14 +1,14 @@
 <?php
 
 use App\Models\PeckUser;
-use App\Models\ThunderApiToken;
+use App\Models\ThunderApiServerToken;
 use Illuminate\Support\Facades\Http;
 
 test('peck refresh command imports users from ThunderAPI', function () {
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://example.test');
 
-    ThunderApiToken::factory()->create(['token' => 'test-token']);
+    ThunderApiServerToken::factory()->create(['token' => 'test-token']);
 
     Http::fake([
         'https://example.test/v1/clans/search/*' => Http::response([
@@ -37,7 +37,7 @@ test('peck refresh command imports users from ThunderAPI', function () {
     $peckUser = PeckUser::query()->find(900001);
 
     expect($peckUser)->not->toBeNull();
-    expect($peckUser?->username)->toBe('birb_member');
+    expect($peckUser?->status)->toBe('unverified');
 
     Http::assertSentCount(2);
 });
@@ -46,7 +46,7 @@ test('peck refresh command dry run does not write users', function () {
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://example.test');
 
-    ThunderApiToken::factory()->create(['token' => 'test-token']);
+    ThunderApiServerToken::factory()->create(['token' => 'test-token']);
 
     Http::fake([
         'https://example.test/v1/clans/search/*' => Http::response([

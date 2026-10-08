@@ -14,11 +14,8 @@ class PeckUserFactory extends Factory
 
         return [
             'gaijin_id' => fake()->unique()->numberBetween(100000, 999999999),
-            'username' => fake()->unique()->userName(),
             'discord_id' => $userData->discord_id,
             'status' => fake()->randomElement(PeckUser::STATUSES),
-            'joindate' => fake()->optional()->dateTimeBetween('-2 years', 'now'),
-            'initiator' => null,
         ];
     }
 }

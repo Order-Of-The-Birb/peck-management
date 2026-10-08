@@ -271,6 +271,73 @@ class ThunderApi
     }
 
     /**
+     * Fetch terse user info (nicknames) for the given Gaijin IDs.
+     *
+     * @param  list<int>  $gaijinIds
+     * @return array<int, string> Gaijin ID => nickname
+     *
+     * @throws ThunderApiException
+     */
+    public function getUsersTerse(string $token, array $gaijinIds): array
+    {
+        $gaijinIds = array_values(array_unique(array_filter(
+            array_map('intval', $gaijinIds),
+            static fn (int $gaijinId): bool => $gaijinId > 0,
+        )));
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        $nicknames = [];
+
+        foreach (array_chunk($gaijinIds, 50) as $chunk) {
+            $query = implode('&', array_map(static fn (int $gaijinId): string => 'id='.$gaijinId, $chunk));
+
+            try {
+                $response = Http::acceptJson()
+                    ->withToken($token)
+                    ->timeout(30)
+                    ->get($this->baseUrl().'/v1/users/terse?'.$query);
+            } catch (ConnectionException) {
+                $this->throwUnreachable();
+            }
+
+            if ($response->status() === 401) {
+                throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+            }
+
+            if ($response->status() === 429) {
+                throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+            }
+
+            if (! $response->successful()) {
+                throw new ThunderApiException(sprintf('ThunderAPI users terse request failed (HTTP %d).', $response->status()));
+            }
+
+            $data = $response->json();
+
+            if (! is_array($data)) {
+                continue;
+            }
+
+            foreach ($data as $gaijinId => $entry) {
+                if (! is_array($entry)) {
+                    continue;
+                }
+
+                $nick = $entry['nick'] ?? null;
+
+                if (is_string($nick) && $nick !== '') {
+                    $nicknames[(int) $gaijinId] = $nick;
+                }
+            }
+        }
+
+        return $nicknames;
+    }
+
+    /**
      * Accept a clan application.
      *
      * @throws ThunderApiException

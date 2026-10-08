@@ -2,10 +2,10 @@
 
 namespace App\Livewire;
 
+use App\Actions\ResolveUsernames;
 use App\Actions\ThunderApi;
 use App\Actions\ThunderApiException;
 use App\Actions\ThunderApiUnauthorizedException;
-use App\Models\Officer;
 use App\Models\PeckAlt;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
@@ -13,7 +13,6 @@ use App\Models\PeckUserContext;
 use App\Models\ThunderApiToken;
 use App\Models\User;
 use Carbon\Carbon;
-use Closure;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -42,6 +41,8 @@ class PeckUsersDashboard extends Component
     public bool $showFilterModal = false;
 
     public string $section = 'users';
+
+    public bool $thunderPromptDismissed = false;
 
     public string $altSearch = '';
 
@@ -106,8 +107,6 @@ class PeckUsersDashboard extends Component
 
     public ?int $selectedContextGaijinId = null;
 
-    public ?string $selectedContextUsername = null;
-
     public bool $contextShowExpiredAbsences = false;
 
     public bool $showAddContextForm = false;
@@ -128,19 +127,15 @@ class PeckUsersDashboard extends Component
 
     public ?int $selectedLeaveInfoGaijinId = null;
 
-    public ?string $selectedLeaveInfoUsername = null;
-
     public bool $leaveInfoModalFromStatusChange = false;
 
     /**
-     * @var array{gaijin_id:string,username:string,status:string,discord_id:string,joindate:string,current_leave_info:string}
+     * @var array{gaijin_id:string,status:string,discord_id:string,current_leave_info:string}
      */
     public array $selectedLeaveInfoUserDetails = [
         'gaijin_id' => '',
-        'username' => '',
         'status' => '',
         'discord_id' => '',
-        'joindate' => '',
         'current_leave_info' => '',
     ];
 
@@ -152,50 +147,40 @@ class PeckUsersDashboard extends Component
     ];
 
     /**
-     * @var array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
+     * @var array{status:?string,tz:?int}
      */
     public array $filters = [
         'status' => null,
         'tz' => null,
-        'joined_after' => null,
-        'joined_before' => null,
     ];
 
     /**
-     * @var array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
+     * @var array{status:?string,tz:?int}
      */
     public array $filterForm = [
         'status' => null,
         'tz' => null,
-        'joined_after' => null,
-        'joined_before' => null,
     ];
 
     /**
-     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string,sqb_part:bool}
+     * @var array{gaijin_id:?string,discord_id:?string,tz:?string,status:string,sqb_part:bool}
      */
     public array $form = [
         'gaijin_id' => null,
-        'username' => '',
         'discord_id' => null,
         'tz' => '0',
         'status' => 'member',
-        'joindate' => null,
-        'initiator' => null,
         'sqb_part' => false,
     ];
 
     /**
-     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string,sqb_part:bool}
+     * @var array{gaijin_id:?string,discord_id:?string,tz:?string,status:string,sqb_part:bool}
      */
     public array $newUserForm = [
         'gaijin_id' => null,
-        'username' => '',
         'discord_id' => null,
         'tz' => '0',
         'status' => 'member',
-        'joindate' => null,
-        'initiator' => null,
         'sqb_part' => false,
     ];
 
@@ -241,15 +226,13 @@ class PeckUsersDashboard extends Component
     }
 
     /**
-     * @return array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
+     * @return array{status:?string,tz:?int}
      */
     protected function blankFilterForm(): array
     {
         return [
             'status' => null,
             'tz' => null,
-            'joined_before' => null,
-            'joined_after' => null,
         ];
     }
 
@@ -320,16 +303,6 @@ class PeckUsersDashboard extends Component
                 'integer',
                 'between:-11,12',
             ],
-            'filterForm.joined_after' => [
-                'nullable',
-                'date_format:Y-m-d',
-                'before_or_equal:filterForm.joined_before',
-            ],
-            'filterForm.joined_before' => [
-                'nullable',
-                'date_format:Y-m-d',
-                'after_or_equal:filterForm.joined_after',
-            ],
         ];
     }
 
@@ -361,12 +334,9 @@ class PeckUsersDashboard extends Component
     {
         return [
             'gaijin_id',
-            'username',
             'status',
             'discord_id',
             'tz',
-            'joindate',
-            'initiator',
             'sqb_part',
         ];
     }
@@ -402,12 +372,9 @@ class PeckUsersDashboard extends Component
 
         PeckUser::query()->create([
             'gaijin_id' => (int) $validated['newUserForm']['gaijin_id'],
-            'username' => $validated['newUserForm']['username'],
             'discord_id' => $this->nullableInteger($validated['newUserForm']['discord_id']),
             'tz' => $this->nullableInteger($validated['newUserForm']['tz']),
             'status' => $validated['newUserForm']['status'],
-            'joindate' => $validated['newUserForm']['joindate'],
-            'initiator' => $this->nullableInteger($validated['newUserForm']['initiator']),
             'sqb_part' => $validated['newUserForm']['sqb_part'],
         ]);
 
@@ -509,7 +476,7 @@ class PeckUsersDashboard extends Component
         }
 
         if (! $this->thunderLoggedIn()) {
-            return 'thunder';
+            return $this->thunderPromptDismissed ? null : 'thunder';
         }
 
         if ($this->section === 'squadron_management' && ! $this->squadronManagementAuthorized()) {
@@ -517,6 +484,11 @@ class PeckUsersDashboard extends Component
         }
 
         return null;
+    }
+
+    public function dismissThunderPrompt(): void
+    {
+        $this->thunderPromptDismissed = true;
     }
 
     public function squadronManagementAuthorized(): bool
@@ -567,7 +539,7 @@ class PeckUsersDashboard extends Component
 
     public function loadSquadronLogs(?string $fromEntry = null): void
     {
-        if ($this->squadronBlockReason() !== null) {
+        if ($this->squadronBlockReason() !== null || $this->thunderPromptDismissed) {
             return;
         }
 
@@ -732,7 +704,7 @@ class PeckUsersDashboard extends Component
 
     public function loadSquadronApplicants(): void
     {
-        if ($this->squadronBlockReason() !== null) {
+        if ($this->squadronBlockReason() !== null || $this->thunderPromptDismissed) {
             return;
         }
 
@@ -939,9 +911,8 @@ class PeckUsersDashboard extends Component
                     }
                 });
             })
-            ->orderBy('username')
             ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+            ->get(['gaijin_id']);
     }
 
     public function availableSlaveUsers(): Collection
@@ -988,9 +959,8 @@ class PeckUsersDashboard extends Component
             ->when($excludedGaijinIds !== [], function (Builder $query) use ($excludedGaijinIds): void {
                 $query->whereNotIn('gaijin_id', $excludedGaijinIds);
             })
-            ->orderBy('username')
             ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+            ->get(['gaijin_id']);
     }
 
     public function openCreateMasterModal(): void
@@ -1303,7 +1273,6 @@ class PeckUsersDashboard extends Component
         $peckUser = PeckUser::query()->findOrFail($gaijinId);
 
         $this->selectedContextGaijinId = $peckUser->gaijin_id;
-        $this->selectedContextUsername = $peckUser->username;
         $this->contextShowExpiredAbsences = false;
         $this->showAddContextForm = false;
         $this->contextForm = $this->blankContextForm();
@@ -1315,7 +1284,6 @@ class PeckUsersDashboard extends Component
     {
         $this->showContextModal = false;
         $this->selectedContextGaijinId = null;
-        $this->selectedContextUsername = null;
         $this->contextShowExpiredAbsences = false;
         $this->showAddContextForm = false;
         $this->contextForm = $this->blankContextForm();
@@ -1435,12 +1403,9 @@ class PeckUsersDashboard extends Component
         $this->selectedGaijinId = $peckUser->gaijin_id;
         $this->form = [
             'gaijin_id' => $this->nullableString($peckUser->gaijin_id),
-            'username' => $peckUser->username,
             'discord_id' => $this->nullableString($peckUser->discord_id),
             'tz' => $this->nullableString($peckUser->tz),
             'status' => $peckUser->status,
-            'joindate' => $peckUser->joindate?->format('Y-m-d'),
-            'initiator' => $this->nullableString($peckUser->initiator),
             'sqb_part' => (bool) $peckUser->sqb_part,
         ];
 
@@ -1473,13 +1438,10 @@ class PeckUsersDashboard extends Component
         }
 
         $this->selectedLeaveInfoGaijinId = $peckUser->gaijin_id;
-        $this->selectedLeaveInfoUsername = $peckUser->username;
         $this->selectedLeaveInfoUserDetails = [
             'gaijin_id' => (string) $peckUser->gaijin_id,
-            'username' => $peckUser->username,
             'status' => $peckUser->status,
             'discord_id' => $this->nullableString($peckUser->discord_id) ?? '—',
-            'joindate' => $peckUser->joindate?->format('Y-m-d') ?? '—',
             'current_leave_info' => $peckUser->leaveInfo?->type ?? '—',
         ];
         $this->leaveInfoForm = [
@@ -1496,16 +1458,13 @@ class PeckUsersDashboard extends Component
 
         $this->showLeaveInfoModal = false;
         $this->selectedLeaveInfoGaijinId = null;
-        $this->selectedLeaveInfoUsername = null;
         $this->leaveInfoForm = [
             'type' => PeckLeaveInfo::TYPE_LEFT,
         ];
         $this->selectedLeaveInfoUserDetails = [
             'gaijin_id' => '',
-            'username' => '',
             'status' => '',
             'discord_id' => '',
-            'joindate' => '',
             'current_leave_info' => '',
         ];
         $this->leaveInfoModalFromStatusChange = false;
@@ -1575,12 +1534,9 @@ class PeckUsersDashboard extends Component
 
         $peckUser->fill([
             'gaijin_id' => $updatedGaijinId,
-            'username' => $validated['form']['username'],
             'discord_id' => $this->nullableInteger($validated['form']['discord_id']),
             'tz' => $this->nullableInteger($validated['form']['tz']),
             'status' => $updatedStatus,
-            'joindate' => $validated['form']['joindate'],
-            'initiator' => $this->nullableInteger($validated['form']['initiator']),
             'sqb_part' => $validated['form']['sqb_part'],
         ]);
         $peckUser->save();
@@ -1608,18 +1564,15 @@ class PeckUsersDashboard extends Component
     }
 
     /**
-     * @return array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string,sqb_part:bool}
+     * @return array{gaijin_id:?string,discord_id:?string,tz:?string,status:string,sqb_part:bool}
      */
     protected function blankUserForm(): array
     {
         return [
             'gaijin_id' => null,
-            'username' => '',
             'discord_id' => null,
             'tz' => '0',
             'status' => 'member',
-            'joindate' => null,
-            'initiator' => null,
             'sqb_part' => false,
         ];
     }
@@ -1755,12 +1708,6 @@ class PeckUsersDashboard extends Component
                 'integer',
                 Rule::unique('peck_users', 'gaijin_id')->ignore($selectedGaijinId, 'gaijin_id'),
             ],
-            'form.username' => [
-                'required',
-                'string',
-                'max:255',
-                Rule::unique('peck_users', 'username')->ignore($selectedGaijinId, 'gaijin_id'),
-            ],
             'form.discord_id' => [
                 'nullable',
                 'integer',
@@ -1773,22 +1720,6 @@ class PeckUsersDashboard extends Component
             'form.status' => [
                 'required',
                 Rule::in($this->allowedStatusesForCurrentForm()),
-            ],
-            'form.joindate' => [
-                'nullable',
-                'date_format:Y-m-d',
-            ],
-            'form.initiator' => [
-                'nullable',
-                'integer',
-                Rule::exists('officers', 'gaijin_id'),
-                function (string $attribute, mixed $value, Closure $fail): void {
-                    $gaijinId = $this->nullableInteger($this->form['gaijin_id'] ?? null);
-
-                    if ($value !== null && $gaijinId !== null && (int) $value === $gaijinId) {
-                        $fail(__('The initiator cannot be the same as the selected peck user.'));
-                    }
-                },
             ],
             'form.sqb_part' => [
                 'boolean',
@@ -1846,12 +1777,6 @@ class PeckUsersDashboard extends Component
                 'integer',
                 Rule::unique('peck_users', 'gaijin_id'),
             ],
-            'newUserForm.username' => [
-                'required',
-                'string',
-                'max:255',
-                Rule::unique('peck_users', 'username'),
-            ],
             'newUserForm.discord_id' => [
                 'nullable',
                 'integer',
@@ -1864,22 +1789,6 @@ class PeckUsersDashboard extends Component
             'newUserForm.status' => [
                 'required',
                 Rule::in($this->editableStatuses()),
-            ],
-            'newUserForm.joindate' => [
-                'nullable',
-                'date_format:Y-m-d',
-            ],
-            'newUserForm.initiator' => [
-                'nullable',
-                'integer',
-                Rule::exists('officers', 'gaijin_id'),
-                function (string $attribute, mixed $value, Closure $fail): void {
-                    $gaijinId = $this->nullableInteger($this->newUserForm['gaijin_id'] ?? null);
-
-                    if ($value !== null && $gaijinId !== null && (int) $value === $gaijinId) {
-                        $fail(__('The initiator cannot be the same as the selected peck user.'));
-                    }
-                },
             ],
             'newUserForm.sqb_part' => [
                 'boolean',
@@ -1898,14 +1807,6 @@ class PeckUsersDashboard extends Component
         $sortBy = $this->isSortableColumn($this->sortBy) ? $this->sortBy : 'gaijin_id';
         $sortDirection = $this->sortDirection === 'desc' ? 'desc' : 'asc';
 
-        $initiatorOptions = Officer::query()
-            ->select('officers.gaijin_id', 'officers.rank')
-            ->join('peck_users', 'peck_users.gaijin_id', '=', 'officers.gaijin_id')
-            ->with('peckUser')
-            ->orderBy('peck_users.username')
-            ->orderBy('officers.gaijin_id')
-            ->get();
-
         $shownUsers = null;
         $leaveInfoUsers = null;
         $altMasterCards = null;
@@ -1915,14 +1816,12 @@ class PeckUsersDashboard extends Component
 
         if ($this->isUsersSection()) {
             $shownUsers = PeckUser::query()
-                ->with('initiatorUser')
                 ->when($this->search !== '', function (Builder $query): void {
                     $searchTerm = '%'.$this->search.'%';
 
                     $query->where(function (Builder $innerQuery) use ($searchTerm): void {
                         $innerQuery
                             ->where('gaijin_id', 'like', $searchTerm)
-                            ->orWhere('username', 'like', $searchTerm)
                             ->orWhere('discord_id', 'like', $searchTerm);
                     });
                 })
@@ -1933,12 +1832,6 @@ class PeckUsersDashboard extends Component
                     $query->whereHas('userData', function (Builder $q): void {
                         $q->where('timezone', $this->filters['tz']);
                     });
-                })
-                ->when($this->filters['joined_after'] !== null, function (Builder $query): void {
-                    $query->whereDate('joindate', '>=', $this->filters['joined_after']);
-                })
-                ->when($this->filters['joined_before'] !== null, function (Builder $query): void {
-                    $query->whereDate('joindate', '<=', $this->filters['joined_before']);
                 })
                 ->when(in_array($sortBy, ['tz', 'sqb_part'], true), function (Builder $query) use ($sortBy, $sortDirection): void {
                     $column = $sortBy === 'tz' ? 'timezone' : 'sqb_part';
@@ -1962,11 +1855,9 @@ class PeckUsersDashboard extends Component
                     $query->where(function (Builder $innerQuery) use ($searchTerm): void {
                         $innerQuery
                             ->where('gaijin_id', 'like', $searchTerm)
-                            ->orWhere('username', 'like', $searchTerm)
                             ->orWhere('discord_id', 'like', $searchTerm);
                     });
                 })
-                ->orderBy('username')
                 ->orderBy('gaijin_id')
                 ->paginate(15);
         }
@@ -1975,13 +1866,11 @@ class PeckUsersDashboard extends Component
             $trimmedAltSearch = trim($this->altSearch);
 
             $altMasterCards = PeckAlt::query()
-                ->selectRaw('peck_alts.owner_id, peck_users.username as owner_username, count(*) as slave_count')
-                ->join('peck_users', 'peck_users.gaijin_id', '=', 'peck_alts.owner_id')
+                ->selectRaw('peck_alts.owner_id, count(*) as slave_count')
                 ->when($trimmedAltSearch !== '', function (Builder $query) use ($trimmedAltSearch): void {
-                    $query->where('peck_users.username', 'like', '%'.$trimmedAltSearch.'%');
+                    $query->where('peck_alts.owner_id', 'like', '%'.$trimmedAltSearch.'%');
                 })
-                ->groupBy('peck_alts.owner_id', 'peck_users.username')
-                ->orderBy('peck_users.username')
+                ->groupBy('peck_alts.owner_id')
                 ->orderBy('peck_alts.owner_id')
                 ->paginate(12, ['*'], 'alt-masters-page');
 
@@ -1994,7 +1883,7 @@ class PeckUsersDashboard extends Component
             if ($slaveGaijinIds !== []) {
                 $slaveUsers = PeckUser::query()
                     ->whereIn('gaijin_id', $slaveGaijinIds)
-                    ->get(['gaijin_id', 'username'])
+                    ->get(['gaijin_id'])
                     ->keyBy('gaijin_id');
 
                 $editingMasterSlaveUsers = collect($slaveGaijinIds)
@@ -2012,11 +1901,9 @@ class PeckUsersDashboard extends Component
                     $query->where(function (Builder $innerQuery) use ($trimmedContextSearch): void {
                         $innerQuery
                             ->where('gaijin_id', 'like', '%'.$trimmedContextSearch.'%')
-                            ->orWhere('username', 'like', '%'.$trimmedContextSearch.'%')
                             ->orWhere('discord_id', 'like', '%'.$trimmedContextSearch.'%');
                     });
                 })
-                ->orderBy('username')
                 ->orderBy('gaijin_id')
                 ->paginate(12, ['*'], 'context-users-page');
 
@@ -2030,6 +1917,42 @@ class PeckUsersDashboard extends Component
             }
         }
 
+        $usernameGaijinIds = [];
+
+        foreach ([$shownUsers, $leaveInfoUsers, $contextUserCards] as $userCollection) {
+            foreach ($userCollection ?? [] as $peckUser) {
+                $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
+            }
+        }
+
+        foreach ($altMasterCards ?? [] as $altMasterCard) {
+            $usernameGaijinIds[] = (int) $altMasterCard->owner_id;
+        }
+
+        foreach ($editingMasterSlaveUsers as $peckUser) {
+            $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
+        }
+
+        foreach ([$this->selectedGaijinId, $this->selectedContextGaijinId, $this->selectedLeaveInfoGaijinId] as $selectedGaijinId) {
+            if ($selectedGaijinId !== null) {
+                $usernameGaijinIds[] = $selectedGaijinId;
+            }
+        }
+
+        if ($this->showMasterEditModal) {
+            foreach ($this->availableMasterUsers() as $peckUser) {
+                $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
+            }
+        }
+
+        if ($this->showAddSlaveModal) {
+            foreach ($this->availableSlaveUsers() as $peckUser) {
+                $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
+            }
+        }
+
+        $usernames = app(ResolveUsernames::class)->resolve($usernameGaijinIds);
+
         return view('livewire.peck-users-dashboard', [
             'shownUsers' => $shownUsers,
             'leaveInfoUsers' => $leaveInfoUsers,
@@ -2040,9 +1963,9 @@ class PeckUsersDashboard extends Component
             'editableStatuses' => $this->editableStatuses(),
             'filterableStatuses' => $this->filterableStatuses(),
             'activeFilterCount' => $this->activeFilterCount(),
-            'initiatorOptions' => $initiatorOptions,
             'leaveInfoTypes' => $this->leaveInfoTypes(),
             'contextTypes' => $this->contextTypes(),
+            'usernames' => $usernames,
         ]);
     }
 

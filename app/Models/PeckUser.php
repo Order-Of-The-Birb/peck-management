@@ -43,12 +43,9 @@ class PeckUser extends Model
      */
     protected $fillable = [
         'gaijin_id',
-        'username',
         'discord_id',
         'tz',
         'status',
-        'joindate',
-        'initiator',
         'sqb_part',
     ];
 
@@ -62,8 +59,6 @@ class PeckUser extends Model
         return [
             'gaijin_id' => 'integer',
             'discord_id' => 'integer',
-            'joindate' => 'datetime',
-            'initiator' => 'integer',
         ];
     }
 
@@ -150,16 +145,6 @@ class PeckUser extends Model
     public function setSqbPartAttribute(?bool $value): void
     {
         $this->pendingUserData['sqb_part'] = $value;
-    }
-
-    public function initiatorUser(): BelongsTo
-    {
-        return $this->belongsTo(self::class, 'initiator', 'gaijin_id');
-    }
-
-    public function initiatorOfficer(): BelongsTo
-    {
-        return $this->belongsTo(Officer::class, 'initiator', 'gaijin_id');
     }
 
     public function officer(): HasOne
