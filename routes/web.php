@@ -8,27 +8,15 @@ Route::get('/', function () {
 
 Route::get('/dashboard', function () {
     return view('dashboard', [
-        'dashboardSection' => 'users',
+        'dashboardSection' => 'members',
     ]);
 })->middleware('auth')->name('dashboard');
 
-Route::get('/leave-info', function () {
-    return view('dashboard', [
-        'dashboardSection' => 'leave_info',
-    ]);
-})->middleware('auth')->name('dashboard.leave-info');
+Route::redirect('/leave-info', '/dashboard')->middleware('auth')->name('dashboard.leave-info');
 
-Route::get('/alts', function () {
-    return view('dashboard', [
-        'dashboardSection' => 'alts',
-    ]);
-})->middleware('auth')->name('dashboard.alts');
+Route::redirect('/alts', '/dashboard')->middleware('auth')->name('dashboard.alts');
 
-Route::get('/context', function () {
-    return view('dashboard', [
-        'dashboardSection' => 'context',
-    ]);
-})->middleware('auth')->name('dashboard.context');
+Route::redirect('/context', '/dashboard')->middleware('auth')->name('dashboard.context');
 
 Route::get('/squadron/logs', function () {
     return view('dashboard', [

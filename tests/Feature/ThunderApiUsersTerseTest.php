@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
+    Cache::flush();
+
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
     config()->set('peck.thunderapi_server.email', 'server@example.com');
     config()->set('peck.thunderapi_server.password', 'server-password');

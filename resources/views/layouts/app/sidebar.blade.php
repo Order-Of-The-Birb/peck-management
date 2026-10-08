@@ -11,22 +11,10 @@
             </flux:sidebar.header>            
 
             <flux:sidebar.nav>
-                <flux:sidebar.group :heading="__('Platform')">
-                    <flux:sidebar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
-                        {{ __('Users') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="book-open-text" :href="route('dashboard.leave-info')" :current="request()->routeIs('dashboard.leave-info')" wire:navigate>
-                        {{ __('Leave info') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="users" :href="route('dashboard.alts')" :current="request()->routeIs('dashboard.alts')" wire:navigate>
-                        {{ __('Alts') }}
-                    </flux:sidebar.item>
-                    <flux:sidebar.item icon="document-text" :href="route('dashboard.context')" :current="request()->routeIs('dashboard.context')" wire:navigate>
-                        {{ __('Context') }}
-                    </flux:sidebar.item>
-                </flux:sidebar.group>
-
                 <flux:sidebar.group :heading="__('Squadron')">
+                    <flux:sidebar.item icon="layout-grid" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+                        {{ __('Members') }}
+                    </flux:sidebar.item>
                     <flux:sidebar.item icon="clipboard-document-list" :href="route('dashboard.squadron.logs')" :current="request()->routeIs('dashboard.squadron.logs')" wire:navigate>
                         {{ __('Logs') }}
                     </flux:sidebar.item>

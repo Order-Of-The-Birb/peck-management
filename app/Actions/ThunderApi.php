@@ -381,6 +381,162 @@ class ThunderApi
     }
 
     /**
+     * Fetch metadata about the authenticated user.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws ThunderApiException
+     */
+    public function getSelf(string $token): array
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(10)
+                ->get($this->baseUrl().'/v1/users/self');
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        $this->throwUserRequestFailure($response);
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Search users by nickname.
+     *
+     * @return array<int, string> Gaijin ID => nickname
+     *
+     * @throws ThunderApiException
+     */
+    public function searchUsers(string $token, string $nick, int $limit = 10): array
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(10)
+                ->get($this->baseUrl().'/v1/users/search/'.rawurlencode($nick), [
+                    'limit' => max(2, min(50, $limit)),
+                ]);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        $this->throwUserRequestFailure($response);
+
+        $data = $response->json();
+
+        if (! is_array($data)) {
+            return [];
+        }
+
+        $results = [];
+
+        foreach ($data as $gaijinId => $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            $nickname = $entry['nick'] ?? null;
+
+            if (is_string($nickname) && $nickname !== '') {
+                $results[(int) $gaijinId] = $nickname;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * Kick a member from the squadron.
+     *
+     * @throws ThunderApiException
+     */
+    public function kickMember(string $token, string $userId, string $reason = ''): void
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->asForm()
+                ->timeout(30)
+                ->post($this->baseUrl().'/v1/clans/kick/'.$userId, [
+                    'reason' => $reason,
+                ]);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        $this->throwSquadronActionFailure($response, 'kick');
+    }
+
+    /**
+     * Change a member's squadron role.
+     *
+     * @throws ThunderApiException
+     */
+    public function changeMemberRole(string $token, string $userId, string $role): void
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(30)
+                ->withQueryParameters(['role' => $role])
+                ->post($this->baseUrl().'/v1/clans/role/'.$userId);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        $this->throwSquadronActionFailure($response, 'role');
+    }
+
+    /**
+     * @throws ThunderApiException
+     */
+    private function throwUserRequestFailure(Response $response): void
+    {
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if (! $response->successful()) {
+            throw new ThunderApiException(sprintf('ThunderAPI users request failed (HTTP %d).', $response->status()));
+        }
+    }
+
+    /**
+     * @throws ThunderApiException
+     */
+    private function throwSquadronActionFailure(Response $response, string $action): void
+    {
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if ($response->successful()) {
+            return;
+        }
+
+        $detail = $response->json('detail');
+
+        throw new ThunderApiException(
+            is_string($detail) && $detail !== ''
+                ? $detail
+                : sprintf('ThunderAPI %s request failed (HTTP %d).', $action, $response->status())
+        );
+    }
+
+    /**
      * @throws ThunderApiException
      */
     private function throwApplicantActionFailure(Response $response, string $action): void

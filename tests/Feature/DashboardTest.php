@@ -19,16 +19,17 @@ test('authenticated users can visit the dashboard', function () {
     $response->assertOk();
 });
 
-test('authenticated users can visit the leave info dashboard section', function () {
+test('legacy platform sections redirect to the members dashboard', function () {
     $user = User::query()->create([
-        'name' => 'Leave Info User',
-        'email' => 'leave-info-user@example.com',
+        'name' => 'Legacy Section User',
+        'email' => 'legacy-section-user@example.com',
         'password' => 'password',
     ]);
     $this->actingAs($user);
 
-    $response = $this->get(route('dashboard.leave-info'));
-    $response->assertOk();
+    $this->get(route('dashboard.leave-info'))->assertRedirect(route('dashboard'));
+    $this->get(route('dashboard.alts'))->assertRedirect(route('dashboard'));
+    $this->get(route('dashboard.context'))->assertRedirect(route('dashboard'));
 });
 
 test('authenticated users can visit the squadron logs section', function () {

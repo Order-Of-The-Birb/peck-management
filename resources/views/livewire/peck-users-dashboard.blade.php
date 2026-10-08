@@ -10,36 +10,19 @@
         }
     </style>
     <div class="flex h-full w-full flex-1 flex-col gap-6">
-        @if ($this->isUsersSection())
+        @if ($this->isMembersSection())
             <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
                 <div class="flex w-full flex-row items-end gap-5">
                     <div>
-                        <flux:heading size="xl">{{ __('Users') }}</flux:heading>
-                        <flux:text>{{ __('View and edit records') }}</flux:text>
+                        <flux:heading size="xl">{{ __('Members') }}</flux:heading>
+                        <flux:text>{{ __('View and manage member records') }}</flux:text>
                     </div>
 
-                    <div class="ml-auto flex items-end gap-3">
-                        <flux:button type="button" variant="primary" wire:click="openFilterModal" class="w-auto shrink-0">
-                            {{ __('Filter') }}
-                            @if ($activeFilterCount > 0)
-                                <span class="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium">
-                                    {{ $activeFilterCount }}
-                                </span>
-                            @endif
-                        </flux:button>
-
-                        @if ($this->canEdit())
-                            <flux:button type="button" variant="primary" wire:click="openCreateUserModal" class="w-auto shrink-0">
-                                {{ __('Add User') }}
-                            </flux:button>
-                        @endif
-
-                        <div class="w-xl">
-                            <flux:input
-                                wire:model.live.debounce.300ms="search"
-                                :placeholder="__('Search by Gaijin ID or Discord ID')"
-                            />
-                        </div>
+                    <div class="ml-auto w-xl">
+                        <flux:input
+                            wire:model.live.debounce.300ms="search"
+                            :placeholder="__('Search by Gaijin ID or Discord ID')"
+                        />
                     </div>
                 </div>
 
@@ -55,7 +38,14 @@
                                         @endif
                                     </button>
                                 </th>
-                                <th class="px-3 py-2">{{ __('Username') }}</th>
+                                <th class="px-3 py-2">
+                                    <button type="button" wire:click="sort('discord_id')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
+                                        {{ __('Discord ID') }}
+                                        @if ($this->isSortedBy('discord_id'))
+                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
+                                        @endif
+                                    </button>
+                                </th>
                                 <th class="px-3 py-2">
                                     <button type="button" wire:click="sort('status')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
                                         {{ __('Status') }}
@@ -64,63 +54,32 @@
                                         @endif
                                     </button>
                                 </th>
-                                <th class="w-44 px-3 py-2">
-                                    <button type="button" wire:click="sort('discord_id')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
-                                        {{ __('Discord ID') }}
-                                        @if ($this->isSortedBy('discord_id'))
-                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
-                                        @endif
-                                    </button>
-                                </th>
-                                <th class="w-20 px-3 py-2">
-                                    <button type="button" wire:click="sort('tz')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
-                                        {{ __('TZ') }}
-                                        @if ($this->isSortedBy('tz'))
-                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
-                                        @endif
-                                    </button>
-                                </th>
-                                <th class="px-3 py-2">
-                                    <button type="button" wire:click="sort('sqb_part')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
-                                        {{ __('SQB Part') }}
-                                        @if ($this->isSortedBy('sqb_part'))
-                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
-                                        @endif
-                                    </button>
-                                </th>
-                                @if ($this->canEdit())
-                                    <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
-                                @endif
+                                <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
                             </tr>
                         </thead>
 
                         <tbody class="divide-y divide-neutral-100 dark:divide-neutral-800">
                             @forelse ($shownUsers as $peckUser)
-                                <tr wire:key="peck-user-{{ $peckUser->gaijin_id }}" @class([
-                                    'bg-blue-50/70 dark:bg-blue-900/20' => $selectedGaijinId === $peckUser->gaijin_id,
-                                ])>
+                                <tr wire:key="member-{{ $peckUser->gaijin_id }}">
                                     <td class="px-3 py-2 font-medium">{{ $peckUser->gaijin_id }}</td>
-                                    <td class="px-3 py-2">{{ $usernames[$peckUser->gaijin_id] ?? '—' }}</td>
-                                    <td class="px-3 py-2">{{ $peckUser->status }}</td>
                                     <td class="px-3 py-2">{{ $peckUser->discord_id ?? '—' }}</td>
-                                    <td class="px-3 py-2">{{ $peckUser->tz ?? '—' }}</td>
-                                    <td class="px-3 py-2">{{ is_null($peckUser->sqb_part) ? __('Unknown') : ($peckUser->sqb_part ? __('Yes') : __('No')) }}</td>
-                                    @if ($this->canEdit())
-                                        <td class="px-3 py-2 text-right">
-                                            <flux:button
-                                                :variant="$selectedGaijinId === $peckUser->gaijin_id ? 'primary' : 'ghost'"
-                                                wire:click="selectUser({{ $peckUser->gaijin_id }})"
-                                                class="!px-3 !py-1 text-xs"
-                                            >
-                                                {{ __('Edit') }}
-                                            </flux:button>
-                                        </td>
-                                    @endif
+                                    <td class="px-3 py-2">{{ $peckUser->status }}</td>
+                                    <td class="px-3 py-2 text-right">
+                                        <flux:button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            wire:click="openMemberModal({{ $peckUser->gaijin_id }})"
+                                            class="px-3! py-1! text-xs"
+                                        >
+                                            {{ __('View') }}
+                                        </flux:button>
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="{{ $this->canEdit() ? 7 : 6 }}" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
-                                        {{ __('No users found.') }}
+                                    <td colspan="4" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
+                                        {{ __('No members found.') }}
                                     </td>
                                 </tr>
                             @endforelse
@@ -130,171 +89,6 @@
 
                 <div class="mt-4">
                     {{ $shownUsers?->links() }}
-                </div>
-            </section>
-        @endif
-
-        @if ($this->isLeaveInfoSection())
-            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-                <div class="flex w-full flex-row items-end gap-5">
-                    <div>
-                        <flux:heading size="xl">{{ __('Leave info') }}</flux:heading>
-                        <flux:text>{{ __('Edit leave info for ex-member users') }}</flux:text>
-                    </div>
-
-                    <div class="ml-auto w-xl">
-                        <flux:input
-                            wire:model.live.debounce.300ms="search"
-                            :placeholder="__('Search by Gaijin ID or Discord ID')"
-                        />
-                    </div>
-                </div>
-
-                <div class="mt-6 overflow-x-auto">
-                    <table class="w-full min-w-full table-fixed divide-y divide-neutral-200 text-left text-sm dark:divide-neutral-700">
-                        <thead class="bg-neutral-100/70 text-xs uppercase tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                            <tr>
-                                <th class="px-3 py-2">{{ __('Gaijin ID') }}</th>
-                                <th class="px-3 py-2">{{ __('Username') }}</th>
-                                <th class="px-3 py-2">{{ __('Discord ID') }}</th>
-                                <th class="px-3 py-2">{{ __('Leave Type') }}</th>
-                                @if ($this->canEdit())
-                                    <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
-                                @endif
-                            </tr>
-                        </thead>
-
-                        <tbody class="divide-y divide-neutral-100 dark:divide-neutral-800">
-                            @forelse ($leaveInfoUsers as $peckUser)
-                                <tr wire:key="leave-info-user-{{ $peckUser->gaijin_id }}" @class([
-                                    'bg-blue-50/70 dark:bg-blue-900/20' => $selectedLeaveInfoGaijinId === $peckUser->gaijin_id,
-                                ])>
-                                    <td class="px-3 py-2 font-medium">{{ $peckUser->gaijin_id }}</td>
-                                    <td class="px-3 py-2">{{ $usernames[$peckUser->gaijin_id] ?? '—' }}</td>
-                                    <td class="px-3 py-2">{{ $peckUser->discord_id ?? '—' }}</td>
-                                    <td class="px-3 py-2">{{ $peckUser->leaveInfo?->type ?? '—' }}</td>
-                                    @if ($this->canEdit())
-                                        <td class="px-3 py-2 text-right">
-                                            <flux:button
-                                                variant="primary"
-                                                wire:click="openLeaveInfoModal({{ $peckUser->gaijin_id }})"
-                                                class="!px-3 !py-1 text-xs"
-                                            >
-                                                {{ __('Edit') }}
-                                            </flux:button>
-                                        </td>
-                                    @endif
-                                </tr>
-                            @empty
-                                <tr>5 : 4
-                                    <td colspan="{{ $this->canEdit() ? 4 : 3 }}" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
-                                        {{ __('No ex-member users found.') }}
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="mt-4">
-                    {{ $leaveInfoUsers?->links() }}
-                </div>
-            </section>
-        @endif
-
-        @if ($this->isAltsSection())
-            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-                <div class="flex w-full flex-row items-end gap-5">
-                    <div>
-                        <flux:heading size="xl">{{ __('Alts') }}</flux:heading>
-                        <flux:text>{{ __('Manage master and slave account assignments') }}</flux:text>
-                    </div>
-
-                    <div class="ml-auto flex items-end gap-3">
-                        @if ($this->canEdit())
-                            <flux:button type="button" variant="primary" wire:click="openCreateMasterModal" class="w-auto shrink-0">
-                                {{ __('Add') }}
-                            </flux:button>
-                        @endif
-
-                        <div class="w-xl">
-                            <flux:input
-                                wire:model.live.debounce.300ms="altSearch"
-                                :placeholder="__('Search by master Gaijin ID')"
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    @forelse ($altMasterCards as $altMasterCard)
-                        <article wire:key="alt-master-card-{{ $altMasterCard->owner_id }}" class="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/40">
-                            <div>
-                                <flux:heading size="md">{{ $usernames[$altMasterCard->owner_id] ?? $altMasterCard->owner_id }}</flux:heading>
-                                <flux:text class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                                    {{ __('ID: :id', ['id' => $altMasterCard->owner_id]) }}
-                                </flux:text>
-                                <flux:text class="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                                    {{ __('Slave accounts: :count', ['count' => $altMasterCard->slave_count]) }}
-                                </flux:text>
-                            </div>
-
-                            @if ($this->canEdit())
-                                <div class="mt-4">
-                                    <flux:button type="button" variant="ghost" wire:click="openEditMasterModal({{ $altMasterCard->owner_id }})" class="w-full justify-center">
-                                        {{ __('Edit') }}
-                                    </flux:button>
-                                </div>
-                            @endif
-                        </article>
-                    @empty
-                        <div class="col-span-full rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-                            {{ __('No master accounts found.') }}
-                        </div>
-                    @endforelse
-                </div>
-
-                <div class="mt-4">
-                    {{ $altMasterCards?->links() }}
-                </div>
-            </section>
-        @endif
-
-        @if ($this->isContextSection())
-            <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-                <div class="flex w-full flex-row items-end gap-5">
-                    <div>
-                        <flux:heading size="xl">{{ __('Context') }}</flux:heading>
-                    </div>
-
-                    <div class="ml-auto w-xl">
-                        <flux:input
-                            wire:model.live.debounce.300ms="contextSearch"
-                            :placeholder="__('Search by Gaijin ID or Discord ID')"
-                        />
-                    </div>
-                </div>
-
-                <div class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                    @forelse ($contextUserCards as $contextUserCard)
-                        <article wire:key="context-user-card-{{ $contextUserCard->gaijin_id }}" class="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900/40">
-                            <flux:heading size="md">{{ $usernames[$contextUserCard->gaijin_id] ?? $contextUserCard->gaijin_id }}</flux:heading>
-
-                            <div class="mt-4">
-                                <flux:button type="button" variant="ghost" wire:click="openContextModal({{ $contextUserCard->gaijin_id }})" class="w-full justify-center">
-                                    {{ __('Edit') }}
-                                </flux:button>
-                            </div>
-                        </article>
-                    @empty
-                        <div class="col-span-full rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-                            {{ __('No users found.') }}
-                        </div>
-                    @endforelse
-                </div>
-
-                <div class="mt-4">
-                    {{ $contextUserCards?->links() }}
                 </div>
             </section>
         @endif
@@ -541,537 +335,450 @@
             @endif
         @endif
 
-        @if ($this->isUsersSection())
-            <flux:modal wire:model="showFilterModal" class="max-w-2xl">
-                <form wire:submit="applyFilters" class="space-y-6">
-                    <div>
-                        <flux:heading size="lg">{{ __('Filter Users') }}</flux:heading>
-                        <flux:subheading>
-                            {{ __('Narrow results by status, timezone, and join date.') }}
-                        </flux:subheading>
-                    </div>
+        @if ($this->isMembersSection())
+            <flux:modal wire:model="showMemberModal" class="w-[70rem] max-w-[calc(100vw-2rem)]">
+                @if ($selectedMember !== null)
+                    <div class="space-y-6">
+                        <div>
+                            <flux:heading size="lg">{{ $memberUsername ?? $selectedMember->gaijin_id }}</flux:heading>
+                            <flux:subheading>#{{ $selectedMember->gaijin_id }}</flux:subheading>
+                        </div>
 
-                    <div class="grid gap-4 md:grid-cols-2">
-                        <flux:select wire:model="filterForm.status" :label="__('Status')">
-                            <option value="">{{ __('Any status') }}</option>
-                            @foreach ($filterableStatuses as $status)
-                                <option value="{{ $status }}">{{ $status }}</option>
+                        <div class="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-700">
+                            @foreach ([
+                                'member' => __('Member'),
+                                'context' => __('Context'),
+                                'manage' => __('Manage'),
+                            ] as $tabKey => $tabLabel)
+                                @if ($tabKey !== 'manage' || $this->canEdit())
+                                    <button
+                                        type="button"
+                                        wire:click="selectMemberTab('{{ $tabKey }}')"
+                                        @class([
+                                            'px-4 py-2 text-sm font-medium transition border-b-2 -mb-px',
+                                            'border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-300' => $memberTab === $tabKey,
+                                            'border-transparent text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-100' => $memberTab !== $tabKey,
+                                        ])
+                                    >
+                                        {{ $tabLabel }}
+                                    </button>
+                                @endif
                             @endforeach
-                        </flux:select>
+                        </div>
 
-                        <flux:input
-                            wire:model="filterForm.tz"
-                            :label="__('Timezone UTC Offset (hours)')"
-                            type="number"
-                            inputmode="numeric"
-                            min="-11"
-                            max="12"
-                            :placeholder="__('Any timezone')"
-                        />
-                    </div>
+                        @if ($memberTab === 'member')
+                            <div class="space-y-4">
+                                <div class="grid gap-4 md:grid-cols-2">
+                                    <flux:input
+                                        :label="__('Gaijin ID')"
+                                        :value="$selectedMember->gaijin_id"
+                                        readonly
+                                    />
 
-                    <div class="flex flex-wrap items-center justify-between gap-3">
-                        <flux:text class="text-sm text-neutral-500 dark:text-neutral-400">
-                            @if ($activeFilterCount === 0)
-                                {{ __('No active filters') }}
-                            @elseif ($activeFilterCount === 1)
-                                {{ __('1 active filter') }}
-                            @else
-                                {{ __(':count active filters', ['count' => $activeFilterCount]) }}
+                                    <flux:input
+                                        :label="__('Username')"
+                                        :value="$memberUsername ?? '—'"
+                                        readonly
+                                    />
+
+                                    <flux:select wire:model="memberForm.status" :label="__('Status')" :disabled="! $memberEditMode">
+                                        @foreach ($this->memberStatusOptions() as $status)
+                                            <option value="{{ $status }}">{{ $status }}</option>
+                                        @endforeach
+                                    </flux:select>
+
+                                    <flux:input
+                                        wire:model="memberForm.discord_id"
+                                        :label="__('Discord ID')"
+                                        type="number"
+                                        inputmode="numeric"
+                                        :readonly="! $memberEditMode"
+                                    />
+
+                                    <flux:input
+                                        wire:model="memberForm.tz"
+                                        :label="__('Timezone UTC Offset (hours)')"
+                                        type="number"
+                                        inputmode="numeric"
+                                        :readonly="! $memberEditMode"
+                                    />
+
+                                    <div class="flex w-full items-center">
+                                        <label class="mt-1 flex flex-1 items-center gap-2">
+                                            <flux:checkbox wire:model="memberForm.sqb_part" :disabled="! $memberEditMode" />
+                                            <span class="text-sm">{{ __('Expected SQB Participation') }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                @if ($memberEditMode)
+                                    <div class="space-y-2">
+                                        <flux:input
+                                            wire:model.live="ownerSearch"
+                                            :label="__('Search owner by username or Gaijin ID')"
+                                            :placeholder="__('Type to search…')"
+                                        />
+
+                                        <flux:select wire:model="memberForm.owner" :label="__('Owner')">
+                                            <option value="">{{ __('—') }}</option>
+                                            @foreach ($ownerOptions as $ownerOption)
+                                                <option value="{{ $ownerOption['gaijin_id'] }}">
+                                                    {{ $ownerOption['username'] ?? $ownerOption['gaijin_id'] }} ({{ $ownerOption['gaijin_id'] }})
+                                                </option>
+                                            @endforeach
+                                        </flux:select>
+                                    </div>
+                                @else
+                                    <flux:input
+                                        :label="__('Owner')"
+                                        :value="$memberOwnerGaijinId !== null ? (($usernames[$memberOwnerGaijinId] ?? $memberOwnerGaijinId) . ' (' . $memberOwnerGaijinId . ')') : '—'"
+                                        readonly
+                                    />
+                                @endif
+                            </div>
+
+                            <div class="flex flex-wrap items-center gap-3 border-t border-neutral-200 pt-4 dark:border-neutral-700">
+                                @if ($memberEditMode)
+                                    <div class="ml-auto flex items-center gap-3">
+                                        <flux:button type="button" variant="outline" wire:click="cancelMemberEdit">
+                                            {{ __('Cancel') }}
+                                        </flux:button>
+
+                                        <flux:button type="button" variant="filled" wire:click="saveMember" wire:loading.attr="disabled" wire:target="saveMember">
+                                            {{ __('Save') }}
+                                        </flux:button>
+                                    </div>
+                                @elseif ($this->canEdit())
+                                    <div class="ml-auto flex items-center gap-3">
+                                        <flux:button type="button" variant="primary" wire:click="enterMemberEditMode">
+                                            {{ __('Edit') }}
+                                        </flux:button>
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
+
+                        @if ($memberTab === 'context')
+                            <div class="space-y-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
+                                <div class="space-y-2">
+                                    @forelse ($selectedMemberContexts as $contextEntry)
+                                        <div wire:key="member-context-entry-{{ $contextEntry->context_id }}" class="group flex items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
+                                            @if ($this->canEdit())
+                                                <button
+                                                    type="button"
+                                                    wire:click="removeContext({{ $contextEntry->context_id }})"
+                                                    class="rounded-md p-2 text-neutral-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-red-900/20 dark:hover:text-red-300"
+                                                    aria-label="{{ __('Remove context') }}"
+                                                >
+                                                    <flux:icon.trash class="size-4" />
+                                                </button>
+                                            @endif
+
+                                            <flux:text class="min-w-0 flex-1 truncate">
+                                                <span class="font-medium">{{ $this->contextEntryTypeLabel($contextEntry) }}</span>
+                                                <span class="mx-1 text-neutral-400">|</span>
+                                                <span>{{ $this->contextEntrySummary($contextEntry) }}</span>
+                                            </flux:text>
+
+                                            @if ($contextEntry->type === \App\Models\PeckUserContext::TYPE_MISC)
+                                                <flux:button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    wire:click="openContextEntryModal({{ $contextEntry->context_id }})"
+                                                    class="shrink-0"
+                                                >
+                                                    {{ __('View') }}
+                                                </flux:button>
+                                            @endif
+                                        </div>
+                                    @empty
+                                        <div class="rounded-lg border border-dashed border-neutral-300 px-3 py-4 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                                            {{ __('No contexts.') }}
+                                        </div>
+                                    @endforelse
+                                </div>
+
+                                @if ($this->canEdit() && ! $showAddContextForm)
+                                    <flux:button type="button" variant="ghost" wire:click="openAddContextForm" class="w-full justify-center rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700">
+                                        {{ __('+ Add') }}
+                                    </flux:button>
+                                @endif
+                            </div>
+
+                            @if ($this->canEdit() && $showAddContextForm)
+                                <form wire:submit="addContext" class="space-y-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
+                                    <flux:heading size="sm">{{ __('Add Context') }}</flux:heading>
+
+                                    <flux:select wire:model.live="contextForm.type" :label="__('Type')" required>
+                                        <option value="{{ \App\Models\PeckUserContext::TYPE_MISC }}">{{ __('Miscellaneous') }}</option>
+                                        <option value="{{ \App\Models\PeckUserContext::TYPE_ONCE_ABSENCE }}">{{ __('One-time absence') }}</option>
+                                        <option value="{{ \App\Models\PeckUserContext::TYPE_RECURRING_ABSENCE }}">{{ __('Recurring absence') }}</option>
+                                    </flux:select>
+
+                                    @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_MISC)
+                                        <flux:textarea
+                                            wire:model="contextForm.comment"
+                                            :label="__('Comment')"
+                                            required
+                                        />
+                                    @endif
+
+                                    @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_ONCE_ABSENCE)
+                                        <div class="grid gap-4 md:grid-cols-2">
+                                            <flux:input
+                                                wire:model="contextForm.from"
+                                                :label="__('From')"
+                                                type="date"
+                                                required
+                                            />
+
+                                            <flux:input
+                                                wire:model="contextForm.to"
+                                                :label="__('To')"
+                                                type="date"
+                                                required
+                                            />
+                                        </div>
+                                    @endif
+
+                                    @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_RECURRING_ABSENCE)
+                                        <div class="space-y-4">
+                                            <div>
+                                                <flux:label>{{ __('Weekdays') }}</flux:label>
+                                                <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                                                    @foreach ([0 => 'Mon', 1 => 'Tue', 2 => 'Wed', 3 => 'Thu', 4 => 'Fri', 5 => 'Sat', 6 => 'Sun'] as $weekdayValue => $weekdayLabel)
+                                                        <label class="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
+                                                            <input type="checkbox" wire:model="contextForm.weekdays" value="{{ $weekdayValue }}" class="rounded border-neutral-300 text-blue-600 focus:ring-blue-500 dark:border-neutral-600 dark:bg-neutral-900" />
+                                                            <span>{{ $weekdayLabel }}</span>
+                                                        </label>
+                                                    @endforeach
+                                                </div>
+                                                <flux:error name="contextForm.weekdays" />
+                                            </div>
+
+                                            <flux:input
+                                                wire:model="contextForm.monthDay"
+                                                :label="__('Month day')"
+                                                type="number"
+                                                inputmode="numeric"
+                                                min="1"
+                                                max="31"
+                                            />
+                                        </div>
+                                    @endif
+
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <x-action-message on="peck-context-added" class="text-sm text-green-600 dark:text-green-400">
+                                            {{ __('Added.') }}
+                                        </x-action-message>
+
+                                        <div class="ml-auto flex items-center gap-3">
+                                            <flux:button type="button" variant="ghost" wire:click="closeAddContextForm">
+                                                {{ __('Cancel') }}
+                                            </flux:button>
+
+                                            <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="addContext">
+                                                {{ __('Add') }}
+                                            </flux:button>
+                                        </div>
+                                    </div>
+                                </form>
                             @endif
-                        </flux:text>
+                        @endif
+
+                        @if ($memberTab === 'manage' && $this->canEdit())
+                            <div class="space-y-6">
+                                @if ($manageActionError !== '')
+                                    <div class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100" role="alert">
+                                        {{ $manageActionError }}
+                                    </div>
+                                @endif
+
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <flux:button type="button" variant="danger" wire:click="openKickConfirmModal">
+                                        {{ __('Kick user') }}
+                                    </flux:button>
+
+                                    @if ($this->canChangeRoles())
+                                        <div class="flex items-center gap-2">
+                                            <flux:select wire:model="manageRole" :label="__('Change role')" class="min-w-40">
+                                                <option value="">{{ __('Select role') }}</option>
+                                                @foreach ($assignableRoles as $assignableRole)
+                                                    <option value="{{ $assignableRole }}">{{ $assignableRole }}</option>
+                                                @endforeach
+                                            </flux:select>
+
+                                            <flux:button
+                                                type="button"
+                                                variant="primary"
+                                                wire:click="changeMemberRole"
+                                                wire:loading.attr="disabled"
+                                                wire:target="changeMemberRole"
+                                                :disabled="! $manageRole"
+                                            >
+                                                {{ __('Apply') }}
+                                            </flux:button>
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+                @endif
+            </flux:modal>
+
+            <flux:modal wire:model="showKickConfirmModal" class="max-w-md">
+                @if ($selectedMember !== null)
+                    <div class="space-y-6">
+                        <div>
+                            <flux:heading size="lg">{{ __('Kick user') }}</flux:heading>
+                            <flux:subheading>
+                                {{ __('Are you sure you want to kick #:gaijinId?', ['gaijinId' => $selectedMember->gaijin_id]) }}
+                            </flux:subheading>
+                        </div>
+
+                        <flux:textarea
+                            wire:model="kickReason"
+                            :label="__('Reason (optional)')"
+                            :placeholder="__('Reason for kicking')"
+                        />
+
+                        @if ($manageActionError !== '')
+                            <div class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100" role="alert">
+                                {{ $manageActionError }}
+                            </div>
+                        @endif
 
                         <div class="flex flex-wrap items-center justify-end gap-3">
-                            <flux:button type="button" variant="ghost" wire:click="resetFilters">
-                                {{ __('Clear All') }}
-                            </flux:button>
-
                             <flux:modal.close>
-                                <flux:button type="button" variant="ghost" wire:click="closeFilterModal">
+                                <flux:button type="button" variant="ghost" wire:click="cancelKick">
                                     {{ __('Cancel') }}
                                 </flux:button>
                             </flux:modal.close>
 
-                            <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="applyFilters">
-                                {{ __('Apply Filters') }}
+                            <flux:button type="button" variant="danger" wire:click="kickMember" wire:loading.attr="disabled" wire:target="kickMember">
+                                {{ __('Kick') }}
                             </flux:button>
                         </div>
                     </div>
-                </form>
+                @endif
+            </flux:modal>
+
+            <flux:modal wire:model="showContextEntryModal" class="max-w-2xl">
+                @if ($selectedContextEntry !== null)
+                    <div class="space-y-6">
+                        <div>
+                            <flux:heading size="lg">{{ __('Context') }}</flux:heading>
+                            <flux:subheading>{{ $this->contextEntryTypeLabel($selectedContextEntry) }}</flux:subheading>
+                        </div>
+
+                        @if ($contextEntryEditMode)
+                            <flux:textarea wire:model="contextEntryComment" :label="__('Comment')" rows="6" />
+
+                            <div class="flex items-center justify-end gap-3">
+                                <flux:button type="button" variant="outline" wire:click="cancelContextEntryEdit">
+                                    {{ __('Cancel') }}
+                                </flux:button>
+
+                                <flux:button type="button" variant="filled" wire:click="saveContextEntry" wire:loading.attr="disabled" wire:target="saveContextEntry">
+                                    {{ __('Save') }}
+                                </flux:button>
+                            </div>
+                        @else
+                            <flux:textarea :value="$selectedContextEntry->comment" rows="6" readonly />
+
+                            <div class="flex items-center justify-end gap-3">
+                                <flux:modal.close>
+                                    <flux:button type="button" variant="ghost" wire:click="closeContextEntryModal">
+                                        {{ __('Close') }}
+                                    </flux:button>
+                                </flux:modal.close>
+
+                                @if ($this->canEdit())
+                                    <flux:button type="button" variant="primary" wire:click="enterContextEntryEditMode">
+                                        {{ __('Edit') }}
+                                    </flux:button>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                @endif
             </flux:modal>
 
             @if ($this->canEdit())
-                <flux:modal wire:model="showEditModal" class="max-w-3xl">
-                    @if ($selectedGaijinId !== null)
-                        <form wire:submit="save" class="space-y-6">
+                <flux:modal wire:model="showLeaveInfoModal" class="max-w-xl">
+                    @if ($selectedLeaveInfoGaijinId !== null)
+                        <form wire:submit="saveLeaveInfo" class="space-y-6">
                             <div>
-                                <flux:heading size="lg">{{ __('Edit User') }}</flux:heading>
+                                <flux:heading size="lg">
+                                    {{ $leaveInfoModalFromStatusChange ? __('Set Leave Info') : __('Edit Leave Info') }}
+                                </flux:heading>
                                 <flux:subheading>
-                                    {{ __('Update the selected peck_users record.') }}
+                                    {{ __('Gaijin ID: :gaijinId, User: :username', ['gaijinId' => $selectedLeaveInfoGaijinId, 'username' => $usernames[$selectedLeaveInfoGaijinId] ?? '—']) }}
                                 </flux:subheading>
                             </div>
 
-                            <div class="grid gap-4 md:grid-cols-2">
-                                <flux:input
-                                    wire:model="form.gaijin_id"
-                                    :label="__('Gaijin ID')"
-                                    type="number"
-                                    inputmode="numeric"
-                                    required
-                                    readonly
-                                />
+                            <div class="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/20">
+                                <flux:heading size="sm">{{ __('Selected User Details') }}</flux:heading>
+                                <flux:subheading>{{ __('Read-only snapshot') }}</flux:subheading>
 
-                                <flux:select wire:model="form.status" :label="__('Status')" required>
-                                    @foreach ($editableStatuses as $status)
-                                        <option value="{{ $status }}">{{ $status }}</option>
-                                    @endforeach
-                                </flux:select>
-
-                                <flux:input
-                                    wire:model="form.discord_id"
-                                    :label="__('Discord ID')"
-                                    type="number"
-                                    inputmode="numeric"
-                                />
-
-                                <flux:input
-                                    wire:model="form.tz"
-                                    :label="__('Timezone UTC Offset (hours)')"
-                                    type="number"
-                                    inputmode="numeric"
-                                />
-
-                                <div class="flex w-full">
-                                    <label class="mt-1 flex flex-1 items-center justify-center gap-2">
-                                        <flux:checkbox wire:model="form.sqb_part" />
-                                        <span class="text-sm">{{ __('Expected SQB Participation') }}</span>
-                                    </label>
+                                <div class="mt-4 grid gap-4 md:grid-cols-2">
+                                    <flux:input
+                                        :label="__('Gaijin ID')"
+                                        :value="$selectedLeaveInfoUserDetails['gaijin_id']"
+                                        readonly
+                                    />
+                                    <flux:input
+                                        :label="__('Username')"
+                                        :value="$usernames[$selectedLeaveInfoGaijinId] ?? '—'"
+                                        readonly
+                                    />
+                                    <flux:input
+                                        :label="__('Status')"
+                                        :value="$selectedLeaveInfoUserDetails['status']"
+                                        readonly
+                                    />
+                                    <flux:input
+                                        :label="__('Discord ID')"
+                                        :value="$selectedLeaveInfoUserDetails['discord_id']"
+                                        readonly
+                                    />
+                                    <flux:input
+                                        :label="__('Current Leave Info')"
+                                        :value="$selectedLeaveInfoUserDetails['current_leave_info']"
+                                        readonly
+                                    />
                                 </div>
                             </div>
 
+                            <flux:select wire:model="leaveInfoForm.type" :label="__('Leave Type')" required>
+                                @foreach ($leaveInfoTypes as $leaveInfoType)
+                                    <option value="{{ $leaveInfoType }}">{{ $leaveInfoType }}</option>
+                                @endforeach
+                            </flux:select>
+
                             <div class="flex flex-wrap items-center gap-3">
-                                <x-action-message on="peck-user-saved" class="text-sm text-green-600 dark:text-green-400">
+                                <x-action-message on="peck-leave-info-saved" class="text-sm text-green-600 dark:text-green-400">
                                     {{ __('Saved.') }}
                                 </x-action-message>
 
                                 <div class="ml-auto flex flex-wrap items-center gap-3">
                                     <flux:modal.close>
-                                        <flux:button type="button" variant="ghost" wire:click="clearSelection">
+                                        <flux:button type="button" variant="ghost" wire:click="closeLeaveInfoModal">
                                             {{ __('Cancel') }}
                                         </flux:button>
                                     </flux:modal.close>
 
-                                    <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="save">
-                                        {{ __('Save Changes') }}
+                                    <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveLeaveInfo">
+                                        {{ __('Save Leave Info') }}
                                     </flux:button>
                                 </div>
                             </div>
                         </form>
                     @endif
                 </flux:modal>
-
-                <flux:modal wire:model="showCreateUserModal" class="max-w-3xl">
-                    <form wire:submit="createUser" class="space-y-6">
-                        <div>
-                            <flux:heading size="lg">{{ __('Add User') }}</flux:heading>
-                            <flux:subheading>
-                                {{ __('Create a new peck_users record.') }}
-                            </flux:subheading>
-                        </div>
-
-                        <div class="grid gap-4 md:grid-cols-2">
-                            <flux:input
-                                wire:model="newUserForm.gaijin_id"
-                                :label="__('Gaijin ID')"
-                                type="number"
-                                inputmode="numeric"
-                                required
-                            />
-
-                            <flux:select wire:model="newUserForm.status" :label="__('Status')" required>
-                                @foreach ($editableStatuses as $status)
-                                    <option value="{{ $status }}">{{ $status }}</option>
-                                @endforeach
-                            </flux:select>
-
-                            <flux:input
-                                wire:model="newUserForm.discord_id"
-                                :label="__('Discord ID')"
-                                type="number"
-                                inputmode="numeric"
-                            />
-
-                            <flux:input
-                                wire:model="newUserForm.tz"
-                                :label="__('Timezone UTC Offset (hours)')"
-                                type="number"
-                                inputmode="numeric"
-                            />
-
-                            <div class="w-full">
-                                <flux:label>{{ __('SQB Participation') }}</flux:label>
-                                <label class="mt-1 flex items-center gap-2">
-                                    <flux:checkbox wire:model="newUserForm.sqb_part" />
-                                    <span class="text-sm">{{ __('Expected Participation') }}</span>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div class="flex flex-wrap items-center justify-end gap-3">
-                            <flux:modal.close>
-                                <flux:button type="button" variant="ghost" wire:click="closeCreateUserModal">
-                                    {{ __('Cancel') }}
-                                </flux:button>
-                            </flux:modal.close>
-
-                            <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="createUser">
-                                {{ __('Create User') }}
-                            </flux:button>
-
-                            <x-action-message on="peck-user-created">
-                                {{ __('Created.') }}
-                            </x-action-message>
-                        </div>
-                    </form>
-                </flux:modal>
             @endif
-        @endif
-
-        @if ($this->canEdit() && $this->isAltsSection())
-            <flux:modal wire:model="showMasterEditModal" class="max-w-3xl">
-                <form wire:submit="saveMasterAssignment" class="space-y-6">
-                    <div>
-                        <flux:heading size="lg">
-                            {{ $editingMasterGaijinId === null ? __('Add Master Account') : __('Edit Master Account') }}
-                        </flux:heading>
-                        <flux:subheading>
-                            {{ __('Assign slave accounts and save the relationship set.') }}
-                        </flux:subheading>
-                    </div>
-
-                    <flux:select wire:model.live="altFormMasterGaijinId" :label="__('Master account')" required>
-                        <option value="">{{ __('Select a master account') }}</option>
-                        @foreach ($this->availableMasterUsers() as $availableMasterUser)
-                            <option value="{{ $availableMasterUser->gaijin_id }}">
-                                {{ $usernames[$availableMasterUser->gaijin_id] ?? $availableMasterUser->gaijin_id }} ({{ $availableMasterUser->gaijin_id }})
-                            </option>
-                        @endforeach
-                    </flux:select>
-
-                    <div class="space-y-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
-                        <flux:heading size="sm">{{ __('Slave Accounts') }}</flux:heading>
-
-                        <div class="space-y-2">
-                            @forelse ($editingMasterSlaveUsers as $editingMasterSlaveUser)
-                                <div wire:key="editing-master-slave-{{ $editingMasterSlaveUser->gaijin_id }}" class="group flex items-center justify-between rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
-                                    <div class="flex items-center gap-4">
-                                        <button
-                                            type="button"
-                                            wire:click="removeSlaveFromMaster({{ $editingMasterSlaveUser->gaijin_id }})"
-                                            class="rounded-md p-2 text-neutral-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-red-900/20 dark:hover:text-red-300"
-                                            aria-label="{{ __('Remove slave account') }}"
-                                        >
-                                            <flux:icon.trash class="size-4" />
-                                        </button>
-
-                                        <div>
-                                            <flux:text class="font-medium">{{ $usernames[$editingMasterSlaveUser->gaijin_id] ?? $editingMasterSlaveUser->gaijin_id }}</flux:text>
-                                            <flux:text class="text-xs text-neutral-500 dark:text-neutral-400">{{ $editingMasterSlaveUser->gaijin_id }}</flux:text>
-                                        </div>
-                                    </div>
-
-                                    <flux:button
-                                        type="button"
-                                        variant="ghost"
-                                        wire:click="setMasterFromSlave({{ $editingMasterSlaveUser->gaijin_id }})"
-                                        class="text-xs"
-                                    >
-                                        {{ __('Set Master') }}
-                                    </flux:button>
-                                </div>
-                            @empty
-                                <div class="rounded-lg border border-dashed border-neutral-300 px-3 py-4 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-                                    {{ __('No slave accounts selected.') }}
-                                </div>
-                            @endforelse
-                        </div>
-
-                        <flux:button type="button" variant="ghost" wire:click="openAddSlaveModal" class="w-full justify-center rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700">
-                            {{ __('+ Add') }}
-                        </flux:button>
-                    </div>
-
-                    <div class="flex items-center justify-end gap-3">
-                        <flux:modal.close>
-                            <flux:button type="button" variant="ghost" wire:click="closeMasterEditModal">
-                                {{ __('Cancel') }}
-                            </flux:button>
-                        </flux:modal.close>
-
-                        <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveMasterAssignment">
-                            {{ __('Save') }}
-                        </flux:button>
-                    </div>
-                </form>
-            </flux:modal>
-
-            <flux:modal wire:model="showAddSlaveModal" class="max-w-xl">
-                <form wire:submit="addSlaveToMaster" class="space-y-6">
-                    <div>
-                        <flux:heading size="lg">{{ __('Add Slave Account') }}</flux:heading>
-                        <flux:subheading>
-                            {{ __('Select a user to assign under the selected master account.') }}
-                        </flux:subheading>
-                    </div>
-
-                    <flux:select wire:model="newSlaveGaijinId" :label="__('Slave account')" required>
-                        <option value="">{{ __('Select a slave account') }}</option>
-                        @foreach ($this->availableSlaveUsers() as $availableSlaveUser)
-                            <option usernames[$availableSlaveUser->gaijin_id] ?? $availableSlaveUser->gaijin_id }} ({{ $availableSlaveUser->gaijin_id }})aijin_id }}">
-                                {{ $availableSlaveUser->gaijin_id }}
-                            </option>
-                        @endforeach
-                    </flux:select>
-
-                    <div class="flex items-center justify-end gap-3">
-                        <flux:modal.close>
-                            <flux:button type="button" variant="ghost" wire:click="closeAddSlaveModal">
-                                {{ __('Cancel') }}
-                            </flux:button>
-                        </flux:modal.close>
-
-                        <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="addSlaveToMaster">
-                            {{ __('Add') }}
-                        </flux:button>
-                    </div>
-                </form>
-            </flux:modal>
-        @endif
-
-        @if ($this->isContextSection())
-            <flux:modal wire:model="showContextModal" class="max-w-3xl">
-                @if ($selectedContextGaijinId !== null)
-                    <div class="space-y-6">
-                        <div>
-                            <flux:heading size="lg">{{ __('Edit user contexts') }}</flux:heading>
-                            <flux:subheading>
-                                {{ $usernames[$selectedContextGaijinId] ?? $selectedContextGaijinId }} ({{ $selectedContextGaijinId }})
-                            </flux:subheading>
-                        </div>
-
-                        <flux:field variant="inline">
-                            <flux:checkbox wire:model.live="contextShowExpiredAbsences" />
-                            <flux:label>{{ __('Show old absence entries') }}</flux:label>
-                        </flux:field>
-
-                        <div class="space-y-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
-                            <div class="space-y-2">
-                                @forelse ($selectedContextEntries as $selectedContextEntry)
-                                    <div wire:key="selected-context-entry-{{ $selectedContextEntry->context_id }}" class="group flex items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2 dark:border-neutral-700">
-                                        @if ($this->canEdit())
-                                            <button
-                                                type="button"
-                                                wire:click="removeContext({{ $selectedContextEntry->context_id }})"
-                                                class="rounded-md p-2 text-neutral-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 focus-visible:opacity-100 group-hover:opacity-100 dark:hover:bg-red-900/20 dark:hover:text-red-300"
-                                                aria-label="{{ __('Remove context') }}"
-                                            >
-                                                <flux:icon.trash class="size-4" />
-                                            </button>
-                                        @endif
-
-                                        <flux:text class="min-w-0 flex-1 truncate">
-                                            {{ $this->contextDisplayText($selectedContextEntry) }}
-                                        </flux:text>
-                                    </div>
-                                @empty
-                                    <div class="rounded-lg border border-dashed border-neutral-300 px-3 py-4 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
-                                        {{ __('No contexts shown.') }}
-                                    </div>
-                                @endforelse
-                            </div>
-
-                            @if ($this->canEdit() && ! $showAddContextForm)
-                                <flux:button type="button" variant="ghost" wire:click="openAddContextForm" class="w-full justify-center rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700">
-                                    {{ __('+ Add') }}
-                                </flux:button>
-                            @endif
-                        </div>
-
-                        @if ($this->canEdit() && $showAddContextForm)
-                            <form wire:submit="addContext" class="space-y-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
-                                <flux:heading size="sm">{{ __('Add Context') }}</flux:heading>
-
-                                <flux:select wire:model.live="contextForm.type" :label="__('Type')" required>
-                                    <option value="{{ \App\Models\PeckUserContext::TYPE_MISC }}">{{ __('Miscellaneous') }}</option>
-                                    <option value="{{ \App\Models\PeckUserContext::TYPE_ONCE_ABSENCE }}">{{ __('One-time absence') }}</option>
-                                    <option value="{{ \App\Models\PeckUserContext::TYPE_RECURRING_ABSENCE }}">{{ __('Recurring absence') }}</option>
-                                </flux:select>
-
-                                @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_MISC)
-                                    <flux:textarea
-                                        wire:model="contextForm.comment"
-                                        :label="__('Comment')"
-                                        required
-                                    />
-                                @endif
-
-                                @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_ONCE_ABSENCE)
-                                    <div class="grid gap-4 md:grid-cols-2">
-                                        <flux:input
-                                            wire:model="contextForm.from"
-                                            :label="__('From')"
-                                            type="date"
-                                            required
-                                        />
-
-                                        <flux:input
-                                            wire:model="contextForm.to"
-                                            :label="__('To')"
-                                            type="date"
-                                            required
-                                        />
-                                    </div>
-                                @endif
-
-                                @if ($contextForm['type'] === \App\Models\PeckUserContext::TYPE_RECURRING_ABSENCE)
-                                    <div class="space-y-4">
-                                        <div>
-                                            <flux:label>{{ __('Weekdays') }}</flux:label>
-                                            <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                                                @foreach ([0 => 'Mon', 1 => 'Tue', 2 => 'Wed', 3 => 'Thu', 4 => 'Fri', 5 => 'Sat', 6 => 'Sun'] as $weekdayValue => $weekdayLabel)
-                                                    <label class="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700">
-                                                        <input type="checkbox" wire:model="contextForm.weekdays" value="{{ $weekdayValue }}" class="rounded border-neutral-300 text-blue-600 focus:ring-blue-500 dark:border-neutral-600 dark:bg-neutral-900" />
-                                                        <span>{{ $weekdayLabel }}</span>
-                                                    </label>
-                                                @endforeach
-                                            </div>
-                                            <flux:error name="contextForm.weekdays" />
-                                        </div>
-
-                                        <flux:input
-                                            wire:model="contextForm.monthDay"
-                                            :label="__('Month day')"
-                                            type="number"
-                                            inputmode="numeric"
-                                            min="1"
-                                            max="31"
-                                        />
-                                    </div>
-                                @endif
-
-                                <div class="flex flex-wrap items-center gap-3">
-                                    <x-action-message on="peck-context-added" class="text-sm text-green-600 dark:text-green-400">
-                                        {{ __('Added.') }}
-                                    </x-action-message>
-
-                                    <div class="ml-auto flex items-center gap-3">
-                                        <flux:button type="button" variant="ghost" wire:click="closeAddContextForm">
-                                            {{ __('Cancel') }}
-                                        </flux:button>
-
-                                        <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="addContext">
-                                            {{ __('Add') }}
-                                        </flux:button>
-                                    </div>
-                                </div>
-                            </form>
-                        @endif
-
-                        <div class="flex items-center justify-end gap-3">
-                            <flux:modal.close>
-                                <flux:button type="button" variant="ghost" wire:click="closeContextModal">
-                                    {{ __('Close') }}
-                                </flux:button>
-                            </flux:modal.close>
-                        </div>
-                    </div>
-                @endif
-            </flux:modal>
-        @endif
-
-        @if ($this->canEdit())
-            <flux:modal wire:model="showLeaveInfoModal" class="max-w-xl">
-                @if ($selectedLeaveInfoGaijinId !== null)
-                    <form wire:submit="saveLeaveInfo" class="space-y-6">
-                        <div>
-                            <flux:heading size="lg">
-                                {{ $leaveInfoModalFromStatusChange ? __('Set Leave Info') : __('Edit Leave Info') }}
-                            </flux:heading>
-                            <flux:subheading>
-                                {{ __('Gaijin ID: :gaijinId, User: :username', ['gaijinId' => $selectedLeaveInfoGaijinId, 'username' => $usernames[$selectedLeaveInfoGaijinId] ?? '—']) }}
-                            </flux:subheading>
-                        </div>
-
-                        <div class="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/20">
-                            <flux:heading size="sm">{{ __('Selected User Details') }}</flux:heading>
-                            <flux:subheading>{{ __('Read-only snapshot') }}</flux:subheading>
-
-                            <div class="mt-4 grid gap-4 md:grid-cols-2">
-                                <flux:input
-                                    :label="__('Gaijin ID')"
-                                    :value="$selectedLeaveInfoUserDetails['gaijin_id']"
-                                    readonly
-                                />
-                                <flux:input
-                                    :label="__('Username')"
-                                    :value="$usernames[$selectedLeaveInfoGaijinId] ?? '—'"
-                                    readonly
-                                />
-                                <flux:input
-                                    :label="__('Status')"
-                                    :value="$selectedLeaveInfoUserDetails['status']"
-                                    readonly
-                                />
-                                <flux:input
-                                    :label="__('Discord ID')"
-                                    :value="$selectedLeaveInfoUserDetails['discord_id']"
-                                    readonly
-                                />
-                                <flux:input
-                                    :label="__('Current Leave Info')"
-                                    :value="$selectedLeaveInfoUserDetails['current_leave_info']"
-                                    readonly
-                                />
-                            </div>
-                        </div>
-
-                        <flux:select wire:model="leaveInfoForm.type" :label="__('Leave Type')" required>
-                            @foreach ($leaveInfoTypes as $leaveInfoType)
-                                <option value="{{ $leaveInfoType }}">{{ $leaveInfoType }}</option>
-                            @endforeach
-                        </flux:select>
-
-                        <div class="flex flex-wrap items-center gap-3">
-                            <x-action-message on="peck-leave-info-saved" class="text-sm text-green-600 dark:text-green-400">
-                                {{ __('Saved.') }}
-                            </x-action-message>
-
-                            <div class="ml-auto flex flex-wrap items-center gap-3">
-                                <flux:modal.close>
-                                    <flux:button type="button" variant="ghost" wire:click="closeLeaveInfoModal">
-                                        {{ __('Cancel') }}
-                                    </flux:button>
-                                </flux:modal.close>
-
-                                <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveLeaveInfo">
-                                    {{ __('Save Leave Info') }}
-                                </flux:button>
-                            </div>
-                        </div>
-                    </form>
-                @endif
-            </flux:modal>
-        @endif
-
-        @if ($showAltSaveError)
-            <div
-                x-data
-                x-init="setTimeout(() => $wire.dismissAltSaveError(), 3500)"
-                class="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-800 shadow-lg dark:border-red-800 dark:bg-red-900/40 dark:text-red-100"
-                role="status"
-            >
-                {{ $altSaveErrorMessage }}
-            </div>
         @endif
     </div>
 </div>

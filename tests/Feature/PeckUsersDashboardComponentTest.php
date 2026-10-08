@@ -5,597 +5,291 @@ use App\Models\PeckAlt;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
-use App\Models\ThunderApiServerToken;
+use App\Models\ThunderApiToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
+
+beforeEach(function () {
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_refresh.refresh_after_hours', 1);
+});
+
+function thunderSelfResponse(string $role): array
+{
+    return [
+        'userId' => '424242',
+        'nick' => 'TestAdmin',
+        'squadron' => [
+            'user' => [
+                'role' => ['name' => $role, 'value' => 1],
+            ],
+        ],
+    ];
+}
+
+function actingThunderAdmin(string $role = 'Commander'): User
+{
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'admin-token',
+    ]);
+
+    test()->actingAs($user);
+
+    return $user;
+}
 
 test('peck users dashboard component is discoverable and mountable', function () {
     expect(app('livewire')->exists('peck-users-dashboard'))->toBeTrue();
 
     $instance = Livewire::test(PeckUsersDashboard::class)->instance();
 
-    expect($instance)->toBeInstanceOf(PeckUsersDashboard::class);
+    expect($instance)->toBeInstanceOf(PeckUsersDashboard::class)
+        ->and($instance->section)->toBe('members');
 });
 
-test('users can apply filters from the filter modal', function () {
-    $memberUser = PeckUser::factory()->create([
+test('members list shows gaijin id, discord id, status and a view button', function () {
+    $member = PeckUser::factory()->create([
         'gaijin_id' => 800001,
         'status' => 'member',
-        'tz' => 2,
-    ]);
-
-    $otherUser = PeckUser::factory()->create([
-        'gaijin_id' => 800002,
-        'status' => 'unverified',
-        'tz' => -3,
     ]);
 
     Livewire::test(PeckUsersDashboard::class)
-        ->call('openFilterModal')
-        ->set('filterForm.status', 'member')
-        ->set('filterForm.tz', '2')
-        ->call('applyFilters')
-        ->assertSet('showFilterModal', false)
-        ->assertSet('filters.status', 'member')
-        ->assertSet('filters.tz', 2)
-        ->assertSee((string) $memberUser->gaijin_id)
-        ->assertDontSee((string) $otherUser->gaijin_id);
+        ->assertSee((string) $member->gaijin_id)
+        ->assertSee((string) $member->discord_id)
+        ->assertSee('member')
+        ->assertSee('View');
 });
 
-test('users can clear filters and see all records again', function () {
-    $memberUser = PeckUser::factory()->create([
-        'gaijin_id' => 800003,
-        'status' => 'member',
-    ]);
-
-    $otherUser = PeckUser::factory()->create([
-        'gaijin_id' => 800004,
-        'status' => 'applicant',
-    ]);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->call('openFilterModal')
-        ->set('filterForm.status', 'member')
-        ->call('applyFilters')
-        ->assertSee((string) $memberUser->gaijin_id)
-        ->assertDontSee((string) $otherUser->gaijin_id)
-        ->call('resetFilters')
-        ->assertSet('filters.status', null)
-        ->assertSet('showFilterModal', false)
-        ->assertSee((string) $memberUser->gaijin_id)
-        ->assertSee((string) $otherUser->gaijin_id);
-});
-
-test('search does not match users by status', function () {
-    $memberUser = PeckUser::factory()->create([
-        'gaijin_id' => 800005,
-        'status' => 'member',
-    ]);
-
-    $unverifiedUser = PeckUser::factory()->create([
-        'gaijin_id' => 800006,
-        'status' => 'unverified',
-    ]);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->set('search', 'member')
-        ->assertDontSee((string) $memberUser->gaijin_id)
-        ->assertDontSee((string) $unverifiedUser->gaijin_id);
-});
-
-test('users table displays thunderapi usernames when available', function () {
-    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
-
-    $memberUser = PeckUser::factory()->create([
+test('members list is searchable by gaijin id and discord id', function () {
+    $member = PeckUser::factory()->create([
         'gaijin_id' => 800010,
         'status' => 'member',
     ]);
 
-    Http::fake([
-        'https://thunder.example/v1/users/terse*' => Http::response([
-            '800010' => ['nick' => 'AlphaBird'],
-        ], 200),
-    ]);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->assertSee('AlphaBird')
-        ->assertSee((string) $memberUser->gaijin_id);
-});
-
-test('authorized users can create a user', function () {
-    $admin = User::query()->create([
-        'name' => 'Dashboard Admin',
-        'email' => 'dashboard-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $this->actingAs($admin);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->call('openCreateUserModal')
-        ->set('newUserForm.gaijin_id', '900003')
-        ->set('newUserForm.status', 'member')
-        ->set('newUserForm.discord_id', '123456789012345678')
-        ->set('newUserForm.tz', '0')
-        ->call('createUser')
-        ->assertHasNoErrors();
-
-    expect(PeckUser::query()->find(900003)?->status)->toBe('member');
-});
-
-test('dashboard status dropdown excludes applicant and unverified options', function () {
-    $admin = User::query()->create([
-        'name' => 'Dashboard Status Admin',
-        'email' => 'dashboard-status-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $this->actingAs($admin);
-
-    $component = Livewire::test(PeckUsersDashboard::class)
-        ->call('openCreateUserModal');
-
-    expect($component->instance()->editableStatuses())
-        ->toBe(['member', 'ex_member']);
-});
-
-test('authorized users can save edits and change gaijin id', function () {
-    $admin = User::query()->create([
-        'name' => 'Dashboard Editor',
-        'email' => 'dashboard-editor@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $editableUser = PeckUser::factory()->create([
-        'gaijin_id' => 96729719,
-        'status' => 'member',
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->call('selectUser', $editableUser->gaijin_id)
-        ->set('form.gaijin_id', '97729719')
-        ->set('form.status', 'member')
-        ->set('form.discord_id', '123456789012345678')
-        ->set('form.tz', '0')
-        ->call('save')
-        ->assertHasNoErrors()
-        ->assertSet('selectedGaijinId', 97729719)
-        ->assertDispatched('peck-user-saved');
-
-    expect(PeckUser::query()->find(96729719))->toBeNull();
-    expect(PeckUser::query()->find(97729719)?->discord_id)->toBe(123456789012345678);
-    expect(PeckUser::query()->find(97729719)?->status)->toBe('member');
-});
-
-test('saving a member without a discord id derives unverified status', function () {
-    $admin = User::query()->create([
-        'name' => 'Status Derivation Admin',
-        'email' => 'status-derivation-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $applicantUser = PeckUser::factory()->create([
-        'gaijin_id' => 98765432,
-        'status' => 'applicant',
-        'discord_id' => null,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->call('selectUser', $applicantUser->gaijin_id)
-        ->set('form.status', 'member')
-        ->set('form.discord_id', null)
-        ->set('form.tz', '0')
-        ->call('save')
-        ->assertHasNoErrors()
-        ->assertDispatched('peck-user-saved');
-
-    expect(PeckUser::query()->find(98765432)?->status)->toBe('unverified');
-});
-
-test('editing an unverified user discord id promotes status to member', function () {
-    $admin = User::query()->create([
-        'name' => 'Unverified Discord Edit Admin',
-        'email' => 'unverified-discord-edit-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $unverifiedUser = PeckUser::factory()->create([
-        'gaijin_id' => 98765433,
+    $other = PeckUser::factory()->create([
+        'gaijin_id' => 800020,
         'status' => 'unverified',
-        'discord_id' => null,
-        'tz' => 0,
     ]);
-
-    $this->actingAs($admin);
 
     Livewire::test(PeckUsersDashboard::class)
-        ->call('selectUser', $unverifiedUser->gaijin_id)
-        ->set('form.discord_id', '123456789012345678')
-        ->call('save')
-        ->assertHasNoErrors()
-        ->assertDispatched('peck-user-saved');
-
-    expect(PeckUser::query()->find(98765433)?->status)->toBe('member');
-    expect(PeckUser::query()->find(98765433)?->discord_id)->toBe(123456789012345678);
+        ->set('search', '800010')
+        ->assertSee((string) $member->gaijin_id)
+        ->assertDontSee((string) $other->gaijin_id);
 });
 
-test('leave info section only shows ex-members and allows leave info edits', function () {
-    $admin = User::query()->create([
-        'name' => 'Leave Info Admin',
-        'email' => 'leave-info-admin@example.com',
-        'password' => 'password',
-    ]);
+test('non-admin users can open the member modal but not edit or manage', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
 
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $exMemberUser = PeckUser::factory()->create([
-        'gaijin_id' => 990001,
-        'status' => 'ex_member',
-    ]);
-
-    $memberUser = PeckUser::factory()->create([
-        'gaijin_id' => 990002,
+    $member = PeckUser::factory()->create([
+        'gaijin_id' => 800100,
         'status' => 'member',
     ]);
 
-    $this->actingAs($admin);
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'leave_info'])
-        ->assertSee((string) $exMemberUser->gaijin_id)
-        ->assertDontSee((string) $memberUser->gaijin_id)
-        ->call('openLeaveInfoModal', $exMemberUser->gaijin_id)
-        ->assertSet('leaveInfoForm.type', PeckLeaveInfo::TYPE_LEFT)
-        ->set('leaveInfoForm.type', PeckLeaveInfo::TYPE_LEFT_SERVER)
-        ->call('saveLeaveInfo')
-        ->assertHasNoErrors()
-        ->assertDispatched('peck-leave-info-saved');
-
-    expect(PeckLeaveInfo::query()->find($exMemberUser->gaijin_id)?->type)->toBe(PeckLeaveInfo::TYPE_LEFT_SERVER);
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSet('showMemberModal', true)
+        ->assertSet('memberEditMode', false)
+        ->assertSee('Member')
+        ->assertSee('Context')
+        ->assertDontSee('Manage')
+        ->assertDontSee('Edit');
 });
 
-test('changing user status to ex_member opens leave info modal when no leave info exists', function () {
-    $admin = User::query()->create([
-        'name' => 'Status Change Admin',
-        'email' => 'status-change-admin@example.com',
-        'password' => 'password',
+test('admins can edit member fields and save changes', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
     ]);
 
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $memberUser = PeckUser::factory()->create([
-        'gaijin_id' => 990010,
+    $member = PeckUser::factory()->create([
+        'gaijin_id' => 800200,
         'status' => 'member',
+        'discord_id' => 111,
         'tz' => 0,
     ]);
 
-    $this->actingAs($admin);
-
     Livewire::test(PeckUsersDashboard::class)
-        ->call('selectUser', $memberUser->gaijin_id)
-        ->set('form.status', 'ex_member')
-        ->set('form.tz', '0')
-        ->call('save')
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Edit')
+        ->assertSee('Manage')
+        ->call('enterMemberEditMode')
+        ->assertSet('memberEditMode', true)
+        ->set('memberForm.discord_id', '123456789012345678')
+        ->set('memberForm.tz', '3')
+        ->set('memberForm.status', 'member')
+        ->set('memberForm.sqb_part', true)
+        ->call('saveMember')
         ->assertHasNoErrors()
-        ->assertSet('showEditModal', false)
-        ->assertSet('showLeaveInfoModal', true)
-        ->assertSet('leaveInfoModalFromStatusChange', true)
-        ->assertSet('leaveInfoForm.type', PeckLeaveInfo::TYPE_LEFT);
+        ->assertDispatched('peck-member-saved')
+        ->assertSet('memberEditMode', false);
 
-    expect(PeckLeaveInfo::query()->find($memberUser->gaijin_id))->toBeNull();
+    $member->refresh();
+
+    expect($member->discord_id)->toBe(123456789012345678)
+        ->and($member->tz)->toBe(3)
+        ->and($member->sqb_part)->toBeTrue();
 });
 
-test('changing status away from ex_member removes leave info entry', function () {
-    $admin = User::query()->create([
-        'name' => 'Ex Member Cleanup Admin',
-        'email' => 'ex-member-cleanup-admin@example.com',
-        'password' => 'password',
+test('cancelling an edit discards changes made this session', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
     ]);
 
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $exMemberUser = PeckUser::factory()->create([
-        'gaijin_id' => 990020,
-        'status' => 'ex_member',
-        'tz' => 0,
+    $member = PeckUser::factory()->create([
+        'gaijin_id' => 800300,
+        'status' => 'member',
     ]);
-
-    PeckLeaveInfo::query()->create([
-        'user_id' => $exMemberUser->gaijin_id,
-        'type' => PeckLeaveInfo::TYPE_LEFT,
-    ]);
-
-    $this->actingAs($admin);
 
     Livewire::test(PeckUsersDashboard::class)
-        ->call('selectUser', $exMemberUser->gaijin_id)
-        ->set('form.status', 'member')
-        ->set('form.tz', '0')
-        ->call('save')
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('enterMemberEditMode')
+        ->set('memberForm.discord_id', '999999')
+        ->call('cancelMemberEdit')
+        ->assertSet('memberEditMode', false)
+        ->assertSet('memberForm.discord_id', $member->discord_id);
+});
+
+test('an admin can assign an owner to a member', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 800400]);
+    $owner = PeckUser::factory()->create(['gaijin_id' => 800401]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('enterMemberEditMode')
+        ->set('memberForm.owner', (string) $owner->gaijin_id)
+        ->call('saveMember')
         ->assertHasNoErrors();
 
-    expect(PeckLeaveInfo::query()->find($exMemberUser->gaijin_id))->toBeNull();
+    expect(PeckAlt::query()->where('alt_id', $member->gaijin_id)->value('owner_id'))
+        ->toBe($owner->gaijin_id);
 });
 
-test('alts section can search by master gaijin id', function () {
-    $firstMaster = PeckUser::factory()->create([
-        'gaijin_id' => 991001,
+test('an admin can unassign an owner from a member', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
     ]);
 
-    $secondMaster = PeckUser::factory()->create([
-        'gaijin_id' => 991002,
-    ]);
-
-    $firstSlave = PeckUser::factory()->create([
-        'gaijin_id' => 991003,
-    ]);
-
-    $secondSlave = PeckUser::factory()->create([
-        'gaijin_id' => 991004,
-    ]);
+    $member = PeckUser::factory()->create(['gaijin_id' => 800500]);
+    $owner = PeckUser::factory()->create(['gaijin_id' => 800501]);
 
     PeckAlt::query()->create([
-        'owner_id' => $firstMaster->gaijin_id,
-        'alt_id' => $firstSlave->gaijin_id,
+        'alt_id' => $member->gaijin_id,
+        'owner_id' => $owner->gaijin_id,
     ]);
 
-    PeckAlt::query()->create([
-        'owner_id' => $secondMaster->gaijin_id,
-        'alt_id' => $secondSlave->gaijin_id,
-    ]);
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('enterMemberEditMode')
+        ->set('memberForm.owner', '')
+        ->call('saveMember')
+        ->assertHasNoErrors();
 
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
-        ->assertSee((string) $firstMaster->gaijin_id)
-        ->assertSee((string) $secondMaster->gaijin_id)
-        ->set('altSearch', '991002')
-        ->assertSee((string) $secondMaster->gaijin_id)
-        ->assertDontSee((string) $firstMaster->gaijin_id);
+    expect(PeckAlt::query()->where('alt_id', $member->gaijin_id)->exists())->toBeFalse();
 });
 
-test('adding a master requires selecting at least one slave account', function () {
-    $admin = User::query()->create([
-        'name' => 'Alts Admin',
-        'email' => 'alts-admin@example.com',
-        'password' => 'password',
+test('context sub-tab lists misc entries with a view button and absences without one', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
     ]);
 
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $masterCandidate = PeckUser::factory()->create([
-        'gaijin_id' => 992001,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
-        ->call('openCreateMasterModal')
-        ->set('altFormMasterGaijinId', (string) $masterCandidate->gaijin_id)
-        ->call('saveMasterAssignment')
-        ->assertHasErrors(['altFormSlaveGaijinIds']);
-
-    expect(
-        PeckAlt::query()
-            ->where('owner_id', $masterCandidate->gaijin_id)
-            ->exists()
-    )->toBeFalse();
-});
-
-test('selecting an existing master preloads its slave accounts in the modal', function () {
-    $admin = User::query()->create([
-        'name' => 'Alts Preload Admin',
-        'email' => 'alts-preload-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $master = PeckUser::factory()->create([
-        'gaijin_id' => 992101,
-    ]);
-
-    $firstSlave = PeckUser::factory()->create([
-        'gaijin_id' => 992102,
-    ]);
-
-    $secondSlave = PeckUser::factory()->create([
-        'gaijin_id' => 992103,
-    ]);
-
-    PeckAlt::query()->create([
-        'owner_id' => $master->gaijin_id,
-        'alt_id' => $firstSlave->gaijin_id,
-    ]);
-
-    PeckAlt::query()->create([
-        'owner_id' => $master->gaijin_id,
-        'alt_id' => $secondSlave->gaijin_id,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
-        ->call('openCreateMasterModal')
-        ->set('altFormMasterGaijinId', (string) $master->gaijin_id)
-        ->assertSet('editingMasterGaijinId', $master->gaijin_id)
-        ->assertSet('altFormSlaveGaijinIds', [
-            $firstSlave->gaijin_id,
-            $secondSlave->gaijin_id,
-        ]);
-});
-
-test('set master action reassigns ownership to selected slave and keeps all previous slaves', function () {
-    $admin = User::query()->create([
-        'name' => 'Alts Editor',
-        'email' => 'alts-editor@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $originalMaster = PeckUser::factory()->create([
-        'gaijin_id' => 993001,
-    ]);
-
-    $firstSlave = PeckUser::factory()->create([
-        'gaijin_id' => 993002,
-    ]);
-
-    $secondSlave = PeckUser::factory()->create([
-        'gaijin_id' => 993003,
-    ]);
-
-    PeckAlt::query()->create([
-        'owner_id' => $originalMaster->gaijin_id,
-        'alt_id' => $firstSlave->gaijin_id,
-    ]);
-
-    PeckAlt::query()->create([
-        'owner_id' => $originalMaster->gaijin_id,
-        'alt_id' => $secondSlave->gaijin_id,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'alts'])
-        ->call('openEditMasterModal', $originalMaster->gaijin_id)
-        ->call('setMasterFromSlave', $firstSlave->gaijin_id)
-        ->call('saveMasterAssignment')
-        ->assertHasNoErrors()
-        ->assertDispatched('peck-alt-saved');
-
-    $newMasterSlaveIds = PeckAlt::query()
-        ->where('owner_id', $firstSlave->gaijin_id)
-        ->orderBy('alt_id')
-        ->pluck('alt_id')
-        ->values()
-        ->all();
-
-    expect($newMasterSlaveIds)->toBe([
-        $originalMaster->gaijin_id,
-        $secondSlave->gaijin_id,
-    ]);
-
-    expect(
-        PeckAlt::query()
-            ->where('owner_id', $originalMaster->gaijin_id)
-            ->exists()
-    )->toBeFalse();
-});
-
-test('context section lists users and hides expired one-time absences until enabled', function () {
-    $admin = User::query()->create([
-        'name' => 'Context Viewer',
-        'email' => 'context-viewer@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $peckUser = PeckUser::factory()->create([
-        'gaijin_id' => 994001,
-    ]);
+    $member = PeckUser::factory()->create(['gaijin_id' => 800600]);
 
     PeckUserContext::factory()->create([
-        'user_id' => $peckUser->gaijin_id,
+        'user_id' => $member->gaijin_id,
         'context_id' => 0,
-        'type' => PeckUserContext::TYPE_ONCE_ABSENCE,
-        'from_date' => '2000-01-01',
-        'to_date' => '2000-01-15',
-        'comment' => null,
-    ]);
-
-    PeckUserContext::factory()->create([
-        'user_id' => $peckUser->gaijin_id,
-        'context_id' => 1,
         'type' => PeckUserContext::TYPE_MISC,
         'comment' => 'Max rank: 14.7',
     ]);
 
-    $this->actingAs($admin);
+    PeckUserContext::factory()->create([
+        'user_id' => $member->gaijin_id,
+        'context_id' => 1,
+        'type' => PeckUserContext::TYPE_ONCE_ABSENCE,
+        'from_date' => '2024-01-01',
+        'to_date' => '2024-01-15',
+        'comment' => null,
+    ]);
 
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'context'])
-        ->assertSee((string) $peckUser->gaijin_id)
-        ->call('openContextModal', $peckUser->gaijin_id)
-        ->assertSee('misc: Max rank: 14.7')
-        ->assertDontSee('absence: 2000.01.01 - 2000.01.15')
-        ->set('contextShowExpiredAbsences', true)
-        ->assertSee('absence: 2000.01.01 - 2000.01.15');
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'context')
+        ->assertSee('misc')
+        ->assertSee('Max rank: 14.7')
+        ->assertSee('absence')
+        ->assertSee('2024.01.01 - 2024.01.15')
+        ->assertSeeHtml('openContextEntryModal(0)')
+        ->assertDontSeeHtml('openContextEntryModal(1)');
 });
 
-test('authorized users can add split recurring contexts and remove context entries', function () {
-    $admin = User::query()->create([
-        'name' => 'Context Editor',
-        'email' => 'context-editor@example.com',
-        'password' => 'password',
+test('viewing a misc context opens a read-only comment modal and edits can be saved', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
     ]);
 
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
+    $member = PeckUser::factory()->create(['gaijin_id' => 800700]);
 
-    $peckUser = PeckUser::factory()->create([
-        'gaijin_id' => 994101,
+    PeckUserContext::factory()->create([
+        'user_id' => $member->gaijin_id,
+        'context_id' => 0,
+        'type' => PeckUserContext::TYPE_MISC,
+        'comment' => 'Original comment',
     ]);
 
-    $this->actingAs($admin);
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'context')
+        ->call('openContextEntryModal', 0)
+        ->assertSet('showContextEntryModal', true)
+        ->assertSet('contextEntryComment', 'Original comment')
+        ->assertSee('Original comment')
+        ->call('enterContextEntryEditMode')
+        ->assertSet('contextEntryEditMode', true)
+        ->set('contextEntryComment', 'Updated comment')
+        ->call('saveContextEntry')
+        ->assertHasNoErrors()
+        ->assertDispatched('peck-context-updated')
+        ->assertSet('contextEntryEditMode', false);
 
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'context'])
-        ->call('openContextModal', $peckUser->gaijin_id)
+    expect(
+        PeckUserContext::query()
+            ->where('user_id', $member->gaijin_id)
+            ->where('context_id', 0)
+            ->value('comment')
+    )->toBe('Updated comment');
+});
+
+test('admins can add split recurring contexts and remove entries', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 800800]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'context')
         ->call('openAddContextForm')
         ->set('contextForm.type', PeckUserContext::TYPE_RECURRING_ABSENCE)
         ->set('contextForm.weekdays', [0, 3])
@@ -603,15 +297,130 @@ test('authorized users can add split recurring contexts and remove context entri
         ->call('addContext')
         ->assertHasNoErrors()
         ->assertDispatched('peck-context-added')
-        ->assertSee('absence: every Mon,Thu')
-        ->assertSee('absence: every month on the 26th')
+        ->assertSee('every Mon, Thu')
+        ->assertSee('every month on the 26th')
         ->call('removeContext', 0)
-        ->assertDontSee('absence: every Mon,Thu');
+        ->assertDontSee('every Mon, Thu');
 
-    $remainingContext = PeckUserContext::query()
-        ->where('user_id', $peckUser->gaijin_id)
+    $remaining = PeckUserContext::query()
+        ->where('user_id', $member->gaijin_id)
         ->first();
 
-    expect($remainingContext?->context_id)->toBe(1)
-        ->and($remainingContext?->month_day)->toBe(26);
+    expect($remaining?->context_id)->toBe(1)
+        ->and($remaining?->month_day)->toBe(26);
+});
+
+test('changing status to ex_member opens the leave info modal', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create([
+        'gaijin_id' => 800900,
+        'status' => 'member',
+        'discord_id' => 222,
+        'tz' => 0,
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('enterMemberEditMode')
+        ->set('memberForm.status', 'ex_member')
+        ->call('saveMember')
+        ->assertHasNoErrors()
+        ->assertSet('showLeaveInfoModal', true)
+        ->assertSet('leaveInfoModalFromStatusChange', true)
+        ->assertSet('leaveInfoForm.type', PeckLeaveInfo::TYPE_LEFT);
+
+    expect(PeckLeaveInfo::query()->where('user_id', $member->gaijin_id)->exists())->toBeFalse();
+});
+
+test('commander can kick a member with a confirmation reason', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+        'https://thunder.example/v1/clans/kick/*' => Http::response(['status' => 'success'], 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801000]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSee('Kick user')
+        ->call('openKickConfirmModal')
+        ->set('kickReason', 'inactive')
+        ->call('kickMember')
+        ->assertDispatched('peck-member-kicked');
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/clans/kick/'.$member->gaijin_id)
+        && ($request->data()['reason'] ?? null) === 'inactive');
+});
+
+test('commander can change a member role', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+        'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801100]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSee('Change role')
+        ->set('manageRole', 'Officer')
+        ->call('changeMemberRole')
+        ->assertDispatched('peck-member-role-changed');
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/clans/role/'.$member->gaijin_id)
+        && str_contains($request->url(), 'role=Officer'));
+});
+
+test('officers can kick but cannot change roles', function () {
+    actingThunderAdmin('Officer');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Officer'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801200]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSee('Kick user')
+        ->assertDontSee('Change role');
+});
+
+test('member username resolves through the user thunderapi token when server login fails', function () {
+    $user = User::factory()->create();
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'user-token',
+    ]);
+
+    $this->actingAs($user);
+
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801300]);
+
+    Http::fake([
+        'https://thunder.example/v1/login' => Http::response(['detail' => 'Invalid credentials'], 401),
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            '801300' => ['nick' => 'AlphaBird'],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('AlphaBird');
 });
