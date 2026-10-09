@@ -4,11 +4,8 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
-use Illuminate\Auth\Events\Registered;
-use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -29,8 +26,6 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Event::listen(Registered::class, SendEmailVerificationNotification::class);
-
         $this->configureActions();
         $this->configureViews();
         $this->configureRateLimiting();

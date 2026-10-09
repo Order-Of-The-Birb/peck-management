@@ -34,5 +34,5 @@ test('new users can register', function () {
 
     expect($user->hasVerifiedEmail())->toBeFalse();
 
-    Notification::assertSentTo($user, VerifyEmailNotification::class);
+    Notification::assertSentToTimes($user, VerifyEmailNotification::class, 1);
 });
