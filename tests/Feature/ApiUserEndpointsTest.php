@@ -5,9 +5,27 @@ use App\Models\Officer;
 use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
+use App\Models\ThunderApiServerToken;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+
+beforeEach(function () {
+    Cache::flush();
+
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.squadron_id', null);
+    config()->set('peck.thunderapi_server.email', null);
+    config()->set('peck.thunderapi_server.password', null);
+});
 
 test('api users index returns filtered records', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
     $matchingOfficer = PeckUser::factory()->create([
         'gaijin_id' => 800001,
     ]);
@@ -19,14 +37,19 @@ test('api users index returns filtered records', function () {
 
     $matchingUser = PeckUser::factory()->create([
         'gaijin_id' => 800002,
-        'status' => 'member',
         'tz' => 2,
     ]);
 
     $nonMatchingUser = PeckUser::factory()->create([
         'gaijin_id' => 800003,
-        'status' => 'unverified',
         'tz' => -3,
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [['uid' => (string) $matchingUser->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'candidates' => [],
+        ], 200),
     ]);
 
     $response = $this->getJson('/api/v1/users?search=800002&status=member&tz=2');
@@ -34,6 +57,7 @@ test('api users index returns filtered records', function () {
     $response->assertOk()
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.gaijin_id', $matchingUser->gaijin_id)
+        ->assertJsonPath('data.0.status', 'member')
         ->assertJsonMissingPath('data.0.username')
         ->assertJsonMissingPath('data.0.initiator');
 
@@ -41,21 +65,33 @@ test('api users index returns filtered records', function () {
         ->not->toContain($nonMatchingUser->gaijin_id);
 });
 
-test('api users show returns a single record', function () {
+test('api users show returns a single record with derived status', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
     $peckUser = PeckUser::factory()->create([
         'gaijin_id' => 810001,
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [['uid' => (string) $peckUser->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'candidates' => [],
+        ], 200),
     ]);
 
     $this->getJson('/api/v1/users/'.$peckUser->gaijin_id)
         ->assertOk()
         ->assertJsonPath('data.gaijin_id', $peckUser->gaijin_id)
-        ->assertJsonPath('data.status', $peckUser->status);
+        ->assertJsonPath('data.status', 'member');
 });
 
 test('api users leave info show returns null or leave type', function () {
     $peckUser = PeckUser::factory()->create([
         'gaijin_id' => 810050,
-        'status' => 'ex_member',
     ]);
 
     $this->getJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info')
@@ -131,7 +167,6 @@ test('api users index supports page query without pagination metadata in respons
 test('api users store requires api key authentication', function () {
     $this->postJson('/api/v1/users', [
         'gaijin_id' => 820001,
-        'status' => 'member',
     ])->assertUnauthorized();
 });
 
@@ -174,7 +209,6 @@ test('api users store creates a record for valid api key users', function () {
         'gaijin_id' => 820003,
         'discord_id' => 123456789012345678,
         'tz' => 1,
-        'status' => 'member',
     ])->assertCreated()
         ->assertJsonPath('data.gaijin_id', 820003)
         ->assertJsonPath('data.discord_id', 123456789012345678)
@@ -185,53 +219,6 @@ test('api users store creates a record for valid api key users', function () {
 
     expect($createdUser)->not->toBeNull();
     expect($createdUser?->discord_id)->toBe(123456789012345678);
-});
-
-test('api users store derives unverified status when member has no discord id', function () {
-    $admin = User::query()->create([
-        'name' => 'API Status Derivation Admin',
-        'email' => 'api-status-derivation-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $apiToken = ApiKey::issueForOwner($admin->id);
-
-    $this->postJson('/api/v1/users', [
-        'token' => $apiToken,
-        'gaijin_id' => 820004,
-        'discord_id' => null,
-        'status' => 'member',
-    ])->assertCreated()
-        ->assertJsonPath('data.status', 'unverified');
-
-    expect(PeckUser::query()->find(820004)?->status)->toBe('unverified');
-});
-
-test('api users store rejects alt status', function () {
-    $admin = User::query()->create([
-        'name' => 'API Alt Validation Admin',
-        'email' => 'api-alt-validation-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $apiToken = ApiKey::issueForOwner($admin->id);
-
-    $this->postJson('/api/v1/users', [
-        'token' => $apiToken,
-        'gaijin_id' => 820099,
-        'status' => 'alt',
-    ])->assertUnprocessable()
-        ->assertJsonValidationErrors(['status']);
 });
 
 test('api users leave info upsert endpoint creates and updates leave info', function () {
@@ -250,7 +237,6 @@ test('api users leave info upsert endpoint creates and updates leave info', func
 
     $peckUser = PeckUser::factory()->create([
         'gaijin_id' => 820110,
-        'status' => 'ex_member',
     ]);
 
     $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
@@ -381,7 +367,7 @@ test('api users leave info endpoints return 404 when user is missing', function 
     ])->assertNotFound();
 });
 
-test('api users update rejects an invalid status', function () {
+test('api users update updates discord id and timezone', function () {
     $admin = User::query()->create([
         'name' => 'API Editor',
         'email' => 'api-editor@example.com',
@@ -395,34 +381,6 @@ test('api users update rejects an invalid status', function () {
 
     $targetUser = PeckUser::factory()->create([
         'gaijin_id' => 830001,
-        'status' => 'unverified',
-    ]);
-
-    $apiToken = ApiKey::issueForOwner($admin->id);
-
-    $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
-        'token' => $apiToken,
-        'status' => 'invalid-status',
-    ])->assertUnprocessable()
-        ->assertJsonValidationErrors(['status']);
-});
-
-test('api users update promotes unverified user to member when discord id is provided', function () {
-    $admin = User::query()->create([
-        'name' => 'API Promote Unverified Admin',
-        'email' => 'api-promote-unverified-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $targetUser = PeckUser::factory()->create([
-        'gaijin_id' => 830004,
-        'status' => 'unverified',
-        'discord_id' => null,
     ]);
 
     $apiToken = ApiKey::issueForOwner($admin->id);
@@ -430,42 +388,14 @@ test('api users update promotes unverified user to member when discord id is pro
     $this->patchJson('/api/v1/users/'.$targetUser->gaijin_id, [
         'token' => $apiToken,
         'discord_id' => 887766554433221100,
+        'tz' => 3,
     ])->assertOk()
-        ->assertJsonPath('data.status', 'member');
+        ->assertJsonPath('data.gaijin_id', $targetUser->gaijin_id)
+        ->assertJsonPath('data.discord_id', 887766554433221100)
+        ->assertJsonPath('data.tz', 3);
 
-    expect(PeckUser::query()->find($targetUser->gaijin_id)?->status)->toBe('member');
-});
+    $targetUser->refresh();
 
-test('api users update removes leave info when status changes away from ex_member', function () {
-    $admin = User::query()->create([
-        'name' => 'API Ex Member Cleanup Admin',
-        'email' => 'api-ex-member-cleanup-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $apiToken = ApiKey::issueForOwner($admin->id);
-
-    $exMemberUser = PeckUser::factory()->create([
-        'gaijin_id' => 830110,
-        'status' => 'ex_member',
-    ]);
-
-    PeckLeaveInfo::query()->create([
-        'user_id' => $exMemberUser->gaijin_id,
-        'type' => PeckLeaveInfo::TYPE_LEFT,
-    ]);
-
-    $this->patchJson('/api/v1/users/'.$exMemberUser->gaijin_id, [
-        'token' => $apiToken,
-        'discord_id' => null,
-        'status' => 'member',
-    ])->assertOk()
-        ->assertJsonPath('data.status', 'unverified');
-
-    expect(PeckLeaveInfo::query()->find($exMemberUser->gaijin_id))->toBeNull();
+    expect($targetUser->discord_id)->toBe(887766554433221100)
+        ->and($targetUser->tz)->toBe(3);
 });

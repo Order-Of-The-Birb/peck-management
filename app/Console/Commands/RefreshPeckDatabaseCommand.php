@@ -15,7 +15,6 @@ class RefreshPeckDatabaseCommand extends Command
      */
     protected $signature = 'peck:refresh-db
                             {--squadron= : Override the configured squadron name}
-                            {--no-leave-sync : Skip synchronizing ex-member leave states}
                             {--dry-run : Fetch and report without writing database changes}';
 
     /**
@@ -33,7 +32,6 @@ class RefreshPeckDatabaseCommand extends Command
         try {
             $stats = $refreshPeckDB->handle(
                 squadronName: $this->option('squadron') ?: null,
-                synchronizeLeaveStates: ! (bool) $this->option('no-leave-sync'),
                 dryRun: (bool) $this->option('dry-run'),
             );
         } catch (Throwable $throwable) {

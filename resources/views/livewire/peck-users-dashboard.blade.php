@@ -38,6 +38,7 @@
                                         @endif
                                     </button>
                                 </th>
+                                <th class="px-3 py-2">{{ __('Username') }}</th>
                                 <th class="px-3 py-2">
                                     <button type="button" wire:click="sort('discord_id')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
                                         {{ __('Discord ID') }}
@@ -46,14 +47,7 @@
                                         @endif
                                     </button>
                                 </th>
-                                <th class="px-3 py-2">
-                                    <button type="button" wire:click="sort('status')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
-                                        {{ __('Status') }}
-                                        @if ($this->isSortedBy('status'))
-                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
-                                        @endif
-                                    </button>
-                                </th>
+                                <th class="px-3 py-2">{{ __('Status') }}</th>
                                 <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
                             </tr>
                         </thead>
@@ -62,8 +56,9 @@
                             @forelse ($shownUsers as $peckUser)
                                 <tr wire:key="member-{{ $peckUser->gaijin_id }}">
                                     <td class="px-3 py-2 font-medium">{{ $peckUser->gaijin_id }}</td>
+                                    <td class="px-3 py-2">{{ $usernames[$peckUser->gaijin_id] ?? '—' }}</td>
                                     <td class="px-3 py-2">{{ $peckUser->discord_id ?? '—' }}</td>
-                                    <td class="px-3 py-2">{{ $peckUser->status }}</td>
+                                    <td class="px-3 py-2">{{ $memberStatuses[$peckUser->gaijin_id] ?? '—' }}</td>
                                     <td class="px-3 py-2 text-right">
                                         <flux:button
                                             type="button"
@@ -78,7 +73,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="4" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
+                                    <td colspan="5" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
                                         {{ __('No members found.') }}
                                     </td>
                                 </tr>
@@ -381,11 +376,11 @@
                                         readonly
                                     />
 
-                                    <flux:select wire:model="memberForm.status" :label="__('Status')" :disabled="! $memberEditMode">
-                                        @foreach ($this->memberStatusOptions() as $status)
-                                            <option value="{{ $status }}">{{ $status }}</option>
-                                        @endforeach
-                                    </flux:select>
+                                    <flux:input
+                                        :label="__('Status')"
+                                        :value="$memberStatuses[$selectedMember->gaijin_id] ?? '—'"
+                                        readonly
+                                    />
 
                                     <flux:input
                                         wire:model="memberForm.discord_id"
@@ -705,80 +700,30 @@
                     </div>
                 @endif
             </flux:modal>
+        @endif
 
-            @if ($this->canEdit())
-                <flux:modal wire:model="showLeaveInfoModal" class="max-w-xl">
-                    @if ($selectedLeaveInfoGaijinId !== null)
-                        <form wire:submit="saveLeaveInfo" class="space-y-6">
-                            <div>
-                                <flux:heading size="lg">
-                                    {{ $leaveInfoModalFromStatusChange ? __('Set Leave Info') : __('Edit Leave Info') }}
-                                </flux:heading>
-                                <flux:subheading>
-                                    {{ __('Gaijin ID: :gaijinId, User: :username', ['gaijinId' => $selectedLeaveInfoGaijinId, 'username' => $usernames[$selectedLeaveInfoGaijinId] ?? '—']) }}
-                                </flux:subheading>
-                            </div>
+        @if ($thunderApiError)
+            <div
+                class="fixed bottom-4 left-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 items-start justify-between gap-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-lg dark:border-red-800 dark:bg-red-900/40 dark:text-red-100"
+                role="alert"
+            >
+                <div class="min-w-0">
+                    <flux:heading size="sm">{{ __('ThunderAPI error') }}</flux:heading>
+                    <flux:text class="mt-1 text-sm">
+                        {{ __('An error occurred with ThunderAPI. Please contact an administrator.') }}
+                    </flux:text>
+                </div>
 
-                            <div class="rounded-xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/20">
-                                <flux:heading size="sm">{{ __('Selected User Details') }}</flux:heading>
-                                <flux:subheading>{{ __('Read-only snapshot') }}</flux:subheading>
-
-                                <div class="mt-4 grid gap-4 md:grid-cols-2">
-                                    <flux:input
-                                        :label="__('Gaijin ID')"
-                                        :value="$selectedLeaveInfoUserDetails['gaijin_id']"
-                                        readonly
-                                    />
-                                    <flux:input
-                                        :label="__('Username')"
-                                        :value="$usernames[$selectedLeaveInfoGaijinId] ?? '—'"
-                                        readonly
-                                    />
-                                    <flux:input
-                                        :label="__('Status')"
-                                        :value="$selectedLeaveInfoUserDetails['status']"
-                                        readonly
-                                    />
-                                    <flux:input
-                                        :label="__('Discord ID')"
-                                        :value="$selectedLeaveInfoUserDetails['discord_id']"
-                                        readonly
-                                    />
-                                    <flux:input
-                                        :label="__('Current Leave Info')"
-                                        :value="$selectedLeaveInfoUserDetails['current_leave_info']"
-                                        readonly
-                                    />
-                                </div>
-                            </div>
-
-                            <flux:select wire:model="leaveInfoForm.type" :label="__('Leave Type')" required>
-                                @foreach ($leaveInfoTypes as $leaveInfoType)
-                                    <option value="{{ $leaveInfoType }}">{{ $leaveInfoType }}</option>
-                                @endforeach
-                            </flux:select>
-
-                            <div class="flex flex-wrap items-center gap-3">
-                                <x-action-message on="peck-leave-info-saved" class="text-sm text-green-600 dark:text-green-400">
-                                    {{ __('Saved.') }}
-                                </x-action-message>
-
-                                <div class="ml-auto flex flex-wrap items-center gap-3">
-                                    <flux:modal.close>
-                                        <flux:button type="button" variant="ghost" wire:click="closeLeaveInfoModal">
-                                            {{ __('Cancel') }}
-                                        </flux:button>
-                                    </flux:modal.close>
-
-                                    <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveLeaveInfo">
-                                        {{ __('Save Leave Info') }}
-                                    </flux:button>
-                                </div>
-                            </div>
-                        </form>
-                    @endif
-                </flux:modal>
-            @endif
+                <flux:button
+                    type="button"
+                    variant="ghost"
+                    icon="x-mark"
+                    size="sm"
+                    wire:click="dismissThunderApiError"
+                    :aria-label="__('Dismiss')"
+                    class="shrink-0"
+                />
+            </div>
         @endif
     </div>
 </div>

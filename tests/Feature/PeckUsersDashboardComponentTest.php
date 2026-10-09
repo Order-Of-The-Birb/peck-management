@@ -2,17 +2,23 @@
 
 use App\Livewire\PeckUsersDashboard;
 use App\Models\PeckAlt;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
+use App\Models\ThunderApiServerToken;
 use App\Models\ThunderApiToken;
 use App\Models\User;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
 beforeEach(function () {
+    Cache::flush();
+
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
     config()->set('peck.thunderapi_refresh.refresh_after_hours', 1);
+    config()->set('peck.squadron_id', null);
+    config()->set('peck.thunderapi_server.email', null);
+    config()->set('peck.thunderapi_server.password', null);
 });
 
 function thunderSelfResponse(string $role): array
@@ -51,28 +57,24 @@ test('peck users dashboard component is discoverable and mountable', function ()
         ->and($instance->section)->toBe('members');
 });
 
-test('members list shows gaijin id, discord id, status and a view button', function () {
+test('members list shows gaijin id, discord id and a view button', function () {
     $member = PeckUser::factory()->create([
         'gaijin_id' => 800001,
-        'status' => 'member',
     ]);
 
     Livewire::test(PeckUsersDashboard::class)
         ->assertSee((string) $member->gaijin_id)
         ->assertSee((string) $member->discord_id)
-        ->assertSee('member')
         ->assertSee('View');
 });
 
 test('members list is searchable by gaijin id and discord id', function () {
     $member = PeckUser::factory()->create([
         'gaijin_id' => 800010,
-        'status' => 'member',
     ]);
 
     $other = PeckUser::factory()->create([
         'gaijin_id' => 800020,
-        'status' => 'unverified',
     ]);
 
     Livewire::test(PeckUsersDashboard::class)
@@ -81,13 +83,38 @@ test('members list is searchable by gaijin id and discord id', function () {
         ->assertDontSee((string) $other->gaijin_id);
 });
 
+test('members list derives member, applicant and ex_member status from the clan endpoint', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 802200]);
+    $applicant = PeckUser::factory()->create(['gaijin_id' => 802201]);
+    $exMember = PeckUser::factory()->create(['gaijin_id' => 802202]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->assertSee('applicant')
+        ->assertSee('ex_member')
+        ->set('search', (string) $member->gaijin_id)
+        ->assertSee('member')
+        ->assertDontSee('ex_member');
+});
+
 test('non-admin users can open the member modal but not edit or manage', function () {
     $user = User::factory()->create();
     $this->actingAs($user);
 
     $member = PeckUser::factory()->create([
         'gaijin_id' => 800100,
-        'status' => 'member',
     ]);
 
     Livewire::test(PeckUsersDashboard::class)
@@ -109,7 +136,6 @@ test('admins can edit member fields and save changes', function () {
 
     $member = PeckUser::factory()->create([
         'gaijin_id' => 800200,
-        'status' => 'member',
         'discord_id' => 111,
         'tz' => 0,
     ]);
@@ -122,7 +148,6 @@ test('admins can edit member fields and save changes', function () {
         ->assertSet('memberEditMode', true)
         ->set('memberForm.discord_id', '123456789012345678')
         ->set('memberForm.tz', '3')
-        ->set('memberForm.status', 'member')
         ->set('memberForm.sqb_part', true)
         ->call('saveMember')
         ->assertHasNoErrors()
@@ -145,7 +170,6 @@ test('cancelling an edit discards changes made this session', function () {
 
     $member = PeckUser::factory()->create([
         'gaijin_id' => 800300,
-        'status' => 'member',
     ]);
 
     Livewire::test(PeckUsersDashboard::class)
@@ -310,33 +334,6 @@ test('admins can add split recurring contexts and remove entries', function () {
         ->and($remaining?->month_day)->toBe(26);
 });
 
-test('changing status to ex_member opens the leave info modal', function () {
-    actingThunderAdmin('Commander');
-
-    Http::fake([
-        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
-    ]);
-
-    $member = PeckUser::factory()->create([
-        'gaijin_id' => 800900,
-        'status' => 'member',
-        'discord_id' => 222,
-        'tz' => 0,
-    ]);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->call('openMemberModal', $member->gaijin_id)
-        ->call('enterMemberEditMode')
-        ->set('memberForm.status', 'ex_member')
-        ->call('saveMember')
-        ->assertHasNoErrors()
-        ->assertSet('showLeaveInfoModal', true)
-        ->assertSet('leaveInfoModalFromStatusChange', true)
-        ->assertSet('leaveInfoForm.type', PeckLeaveInfo::TYPE_LEFT);
-
-    expect(PeckLeaveInfo::query()->where('user_id', $member->gaijin_id)->exists())->toBeFalse();
-});
-
 test('commander can kick a member with a confirmation reason', function () {
     actingThunderAdmin('Commander');
 
@@ -423,4 +420,43 @@ test('member username resolves through the user thunderapi token when server log
     Livewire::test(PeckUsersDashboard::class)
         ->call('openMemberModal', $member->gaijin_id)
         ->assertSee('AlphaBird');
+});
+
+test('members list resolves usernames via the terse endpoint using the server login', function () {
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 802001]);
+
+    Http::fake([
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            '802001' => ['nick' => 'AlphaBird'],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->assertSee('AlphaBird')
+        ->assertSee((string) $member->gaijin_id);
+});
+
+test('shows an error popup when thunderapi is unreachable during username resolution', function () {
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    PeckUser::factory()->create(['gaijin_id' => 802100]);
+
+    Http::fake([
+        'https://thunder.example/v1/users/terse*' => Http::failedConnection(),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->assertSet('thunderApiError', true)
+        ->assertSee('An error occurred with ThunderAPI')
+        ->call('dismissThunderApiError')
+        ->assertSet('thunderApiError', false)
+        ->assertDontSee('An error occurred with ThunderAPI');
 });

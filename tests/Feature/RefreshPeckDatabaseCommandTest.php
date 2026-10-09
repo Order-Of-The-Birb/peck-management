@@ -37,7 +37,7 @@ test('peck refresh command imports users from ThunderAPI', function () {
     $peckUser = PeckUser::query()->find(900001);
 
     expect($peckUser)->not->toBeNull();
-    expect($peckUser?->status)->toBe('unverified');
+    expect($peckUser?->gaijin_id)->toBe(900001);
 
     Http::assertSentCount(2);
 });

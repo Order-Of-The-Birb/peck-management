@@ -271,6 +271,41 @@ class ThunderApi
     }
 
     /**
+     * Fetch the squadron clan data, including its members and applicants.
+     *
+     * @return array<string, mixed>
+     *
+     * @throws ThunderApiException
+     */
+    public function getClan(string $token, string $clanId): array
+    {
+        try {
+            $response = Http::acceptJson()
+                ->withToken($token)
+                ->timeout(30)
+                ->get($this->baseUrl().'/v1/clans/'.$clanId);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if (! $response->successful()) {
+            throw new ThunderApiException(sprintf('ThunderAPI clan request failed (HTTP %d).', $response->status()));
+        }
+
+        $data = $response->json();
+
+        return is_array($data) ? $data : [];
+    }
+
+    /**
      * Fetch terse user info (nicknames) for the given Gaijin IDs.
      *
      * @param  list<int>  $gaijinIds
@@ -564,7 +599,7 @@ class ThunderApi
 
     protected function throwUnreachable(): never
     {
-        throw new ThunderApiException('Unable to reach ThunderAPI. Please try again later.');
+        throw new ThunderApiUnreachableException('Unable to reach ThunderAPI. Please try again later.');
     }
 
     protected function baseUrl(): string

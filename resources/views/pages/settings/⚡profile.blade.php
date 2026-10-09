@@ -50,6 +50,10 @@ new #[Title('Profile settings')] class extends Component {
 
         $user->save();
 
+        if ($user->wasChanged('email')) {
+            $user->sendEmailVerificationNotification();
+        }
+
         $this->dispatch('profile-updated', name: $user->name);
     }
 

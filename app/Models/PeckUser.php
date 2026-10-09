@@ -15,14 +15,8 @@ class PeckUser extends Model
     use HasFactory;
 
     public const STATUSES = [
+        'member',
         'applicant',
-        'unverified',
-        'ex_member',
-        'member',
-    ];
-
-    public const DASHBOARD_EDITABLE_STATUSES = [
-        'member',
         'ex_member',
     ];
 
@@ -45,7 +39,6 @@ class PeckUser extends Model
         'gaijin_id',
         'discord_id',
         'tz',
-        'status',
         'sqb_part',
     ];
 
@@ -79,11 +72,6 @@ class PeckUser extends Model
     protected static function booted(): void
     {
         static::saving(function (self $peckUser): void {
-            $peckUser->status = self::resolvePersistedStatus(
-                status: (string) $peckUser->status,
-                discordId: $peckUser->discord_id,
-            );
-
             if ($peckUser->isDirty('discord_id') && $peckUser->discord_id !== null) {
                 PeckUserData::firstOrCreate(
                     ['discord_id' => $peckUser->discord_id],
@@ -160,18 +148,5 @@ class PeckUser extends Model
     public function contexts(): HasMany
     {
         return $this->hasMany(PeckUserContext::class, 'user_id', 'gaijin_id');
-    }
-
-    public static function resolvePersistedStatus(string $status, mixed $discordId): string
-    {
-        if ($status === 'member' && $discordId === null) {
-            return 'unverified';
-        }
-
-        if ($status === 'unverified' && $discordId !== null) {
-            return 'member';
-        }
-
-        return $status;
     }
 }

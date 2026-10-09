@@ -1150,9 +1150,8 @@ new #[Title('Administration settings')] class extends Component {
 
                 Cache::put($resultKey, [
                     'status' => 'success',
-                    'message' => __('Refresh completed. :created users created, :updated updated, :members members received.', [
+                    'message' => __('Refresh completed. :created users created, :members members received.', [
                         'created' => $stats['users_created'],
-                        'updated' => $stats['users_updated'],
                         'members' => $stats['members_received'],
                     ]),
                 ], now()->addMinutes($cooldownMinutes));

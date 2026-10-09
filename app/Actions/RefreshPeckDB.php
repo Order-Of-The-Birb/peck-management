@@ -2,20 +2,17 @@
 
 namespace App\Actions;
 
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 class RefreshPeckDB
 {
     /**
-     * @return array{members_received:int,users_created:int,users_updated:int,marked_ex_members:int,reactivated_members:int,leave_records_removed:int}
+     * @return array{members_received:int,users_created:int}
      */
     public function handle(
         ?string $squadronName = null,
-        bool $synchronizeLeaveStates = true,
         bool $dryRun = false,
     ): array {
         $squadron = $squadronName ?? config('peck.squadron_name');
@@ -29,72 +26,31 @@ class RefreshPeckDB
         $stats = [
             'members_received' => count($members),
             'users_created' => 0,
-            'users_updated' => 0,
-            'marked_ex_members' => 0,
-            'reactivated_members' => 0,
-            'leave_records_removed' => 0,
         ];
 
         if ($dryRun) {
             return $stats;
         }
 
-        DB::transaction(function () use (&$stats, $members, $synchronizeLeaveStates): void {
-            $memberIds = array_values(array_unique(array_map(
-                static fn (array $member): int => $member['gaijin_id'],
-                $members,
-            )));
+        $memberIds = array_values(array_unique(array_map(
+            static fn (array $member): int => $member['gaijin_id'],
+            $members,
+        )));
 
-            $existingUsers = PeckUser::query()->whereIn('gaijin_id', $memberIds)->get()->keyBy('gaijin_id');
+        $existingGaijinIds = PeckUser::query()
+            ->whereIn('gaijin_id', $memberIds)
+            ->pluck('gaijin_id')
+            ->map(fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->flip();
 
-            foreach ($members as $member) {
-                $peckUser = $existingUsers->get($member['gaijin_id']);
-
-                if ($peckUser === null) {
-                    $newUser = PeckUser::query()->create([
-                        'gaijin_id' => $member['gaijin_id'],
-                        'status' => 'unverified',
-                    ]);
-                    $existingUsers->put($member['gaijin_id'], $newUser);
-
-                    $stats['users_created']++;
-
-                    continue;
-                }
-
-                if ($peckUser->status === 'ex_member') {
-                    $peckUser->status = 'member';
-                    $peckUser->save();
-
-                    $stats['reactivated_members']++;
-                    $stats['users_updated']++;
-                }
+        foreach ($memberIds as $gaijinId) {
+            if ($existingGaijinIds->has($gaijinId)) {
+                continue;
             }
 
-            $stats['leave_records_removed'] = PeckLeaveInfo::query()
-                ->whereIn('user_id', $memberIds)
-                ->delete();
-
-            if (! $synchronizeLeaveStates) {
-                return;
-            }
-
-            $leftUsers = PeckUser::query()
-                ->whereIn('status', ['member', 'unverified'])
-                ->whereNotIn('gaijin_id', $memberIds)
-                ->get();
-
-            foreach ($leftUsers as $leftUser) {
-                $leftUser->status = 'ex_member';
-                $leftUser->save();
-                $stats['marked_ex_members']++;
-
-                PeckLeaveInfo::query()->updateOrCreate(
-                    ['user_id' => $leftUser->gaijin_id],
-                    ['type' => PeckLeaveInfo::TYPE_LEFT_SQUADRON],
-                );
-            }
-        });
+            PeckUser::query()->create(['gaijin_id' => $gaijinId]);
+            $stats['users_created']++;
+        }
 
         return $stats;
     }

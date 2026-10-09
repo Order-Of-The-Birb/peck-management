@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\ResolveSquadronRoster;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreApiUserContextRequest;
 use App\Http\Requests\StoreApiUserRequest;
@@ -41,12 +42,13 @@ class UserController extends Controller
         ]);
 
         $searchTerm = $validated['search'] ?? null;
+        $statusFilter = $validated['status'] ?? null;
         $sortBy = $validated['sort_by'] ?? 'gaijin_id';
         $sortDirection = $validated['sort_direction'] ?? 'asc';
         $perPage = $validated['per_page'] ?? 15;
         $page = $validated['page'] ?? 1;
 
-        $users = PeckUser::query()
+        $query = PeckUser::query()
             ->when($searchTerm !== null && $searchTerm !== '', function ($query) use ($searchTerm): void {
                 $likeSearchTerm = '%'.$searchTerm.'%';
 
@@ -56,14 +58,21 @@ class UserController extends Controller
                         ->orWhere('discord_id', 'like', $likeSearchTerm);
                 });
             })
-            ->when(array_key_exists('status', $validated) && $validated['status'] !== null, function ($query) use ($validated): void {
-                $query->where('status', $validated['status']);
-            })
             ->when(array_key_exists('tz', $validated) && $validated['tz'] !== null, function ($query) use ($validated): void {
                 $query->whereHas('userData', function ($q) use ($validated): void {
                     $q->where('timezone', $validated['tz']);
                 });
-            })
+            });
+
+        if ($statusFilter !== null || $sortBy === 'status') {
+            $users = $query->orderBy('gaijin_id')->get();
+
+            return PeckUserResource::collection(
+                $this->filterByDerivedStatus($users, $statusFilter, $sortBy, $sortDirection, $page, $perPage)
+            );
+        }
+
+        $users = $query
             ->when(in_array($sortBy, ['tz', 'sqb_part'], true), function ($query) use ($sortBy, $sortDirection): void {
                 $column = $sortBy === 'tz' ? 'timezone' : 'sqb_part';
                 $query->orderByRaw(
@@ -77,6 +86,40 @@ class UserController extends Controller
             ->get();
 
         return PeckUserResource::collection($users);
+    }
+
+    /**
+     * @param  Collection<int, PeckUser>  $users
+     * @return Collection<int, PeckUser>
+     */
+    private function filterByDerivedStatus(Collection $users, ?string $statusFilter, string $sortBy, string $sortDirection, int $page, int $perPage): Collection
+    {
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve();
+
+        $rows = $users
+            ->mapWithKeys(function (PeckUser $user) use ($resolver, $roster): array {
+                return [(int) $user->gaijin_id => [
+                    'user' => $user,
+                    'status' => $resolver->statusFor((int) $user->gaijin_id, $roster),
+                ]];
+            });
+
+        if ($statusFilter !== null) {
+            $rows = $rows->filter(fn (array $row): bool => $row['status'] === $statusFilter);
+        }
+
+        if ($sortBy === 'status') {
+            $rows = $sortDirection === 'asc'
+                ? $rows->sortBy(fn (array $row): string => $row['status'] ?? '')
+                : $rows->sortByDesc(fn (array $row): string => $row['status'] ?? '');
+        }
+
+        return $rows
+            ->map(fn (array $row): PeckUser => $row['user'])
+            ->values()
+            ->forPage($page, $perPage)
+            ->values();
     }
 
     public function store(StoreApiUserRequest $request): JsonResponse
@@ -95,18 +138,8 @@ class UserController extends Controller
 
     public function update(UpdateApiUserRequest $request, PeckUser $peckUser): PeckUserResource
     {
-        $validated = $request->validated();
-        $previousStatus = $peckUser->status;
-        $previousGaijinId = $peckUser->gaijin_id;
-
-        $peckUser->fill($validated);
+        $peckUser->fill($request->validated());
         $peckUser->save();
-
-        if (array_key_exists('status', $validated) && $previousStatus === 'ex_member' && $peckUser->status !== 'ex_member') {
-            PeckLeaveInfo::query()
-                ->where('user_id', $previousGaijinId)
-                ->delete();
-        }
 
         return new PeckUserResource($peckUser);
     }

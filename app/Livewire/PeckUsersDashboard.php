@@ -2,13 +2,13 @@
 
 namespace App\Livewire;
 
+use App\Actions\ResolveSquadronRoster;
 use App\Actions\ResolveUsernames;
 use App\Actions\ServerThunderApi;
 use App\Actions\ThunderApi;
 use App\Actions\ThunderApiException;
 use App\Actions\ThunderApiUnauthorizedException;
 use App\Models\PeckAlt;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
 use App\Models\ThunderApiToken;
@@ -16,6 +16,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -67,11 +68,10 @@ class PeckUsersDashboard extends Component
     public string $ownerSearch = '';
 
     /**
-     * @var array{gaijin_id:?string,status:string,discord_id:?string,tz:?string,sqb_part:bool,owner:?string}
+     * @var array{gaijin_id:?string,discord_id:?string,tz:?string,sqb_part:bool,owner:?string}
      */
     public array $memberForm = [
         'gaijin_id' => null,
-        'status' => 'member',
         'discord_id' => null,
         'tz' => null,
         'sqb_part' => false,
@@ -108,30 +108,11 @@ class PeckUsersDashboard extends Component
 
     public string $manageActionError = '';
 
-    public bool $showLeaveInfoModal = false;
-
-    public ?int $selectedLeaveInfoGaijinId = null;
-
-    public bool $leaveInfoModalFromStatusChange = false;
-
-    /**
-     * @var array{gaijin_id:string,status:string,discord_id:string,current_leave_info:string}
-     */
-    public array $selectedLeaveInfoUserDetails = [
-        'gaijin_id' => '',
-        'status' => '',
-        'discord_id' => '',
-        'current_leave_info' => '',
-    ];
-
-    /**
-     * @var array{type:string}
-     */
-    public array $leaveInfoForm = [
-        'type' => PeckLeaveInfo::TYPE_LEFT,
-    ];
-
     public bool $thunderPromptDismissed = false;
+
+    public bool $thunderApiError = false;
+
+    public bool $thunderApiErrorDismissed = false;
 
     /**
      * @var list<array{action_label:string,actor:?string,datetime:?string,details:list<array{label:?string,value:string,glyphs:bool}>}>
@@ -235,7 +216,6 @@ class PeckUsersDashboard extends Component
         return [
             'gaijin_id',
             'discord_id',
-            'status',
         ];
     }
 
@@ -272,22 +252,6 @@ class PeckUsersDashboard extends Component
     /**
      * @return list<string>
      */
-    public function editableStatuses(): array
-    {
-        return PeckUser::DASHBOARD_EDITABLE_STATUSES;
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function leaveInfoTypes(): array
-    {
-        return PeckLeaveInfo::TYPES;
-    }
-
-    /**
-     * @return list<string>
-     */
     public function contextTypes(): array
     {
         return PeckUserContext::TYPES;
@@ -305,21 +269,6 @@ class PeckUsersDashboard extends Component
             self::ROLE_DEPUTY,
             self::ROLE_COMMANDER,
         ];
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function memberStatusOptions(): array
-    {
-        $statuses = $this->editableStatuses();
-        $currentStatus = $this->memberForm['status'] ?? null;
-
-        if (is_string($currentStatus) && in_array($currentStatus, PeckUser::STATUSES, true) && ! in_array($currentStatus, $statuses, true)) {
-            $statuses[] = $currentStatus;
-        }
-
-        return $statuses;
     }
 
     public function thunderRole(): ?string
@@ -427,6 +376,21 @@ class PeckUsersDashboard extends Component
     protected function ensureCanEdit(): void
     {
         abort_unless($this->canEdit(), 403);
+    }
+
+    public function dismissThunderApiError(): void
+    {
+        $this->thunderApiError = false;
+        $this->thunderApiErrorDismissed = true;
+    }
+
+    protected function syncThunderApiErrorState(bool $unreachable): void
+    {
+        if (! $unreachable) {
+            $this->thunderApiErrorDismissed = false;
+        }
+
+        $this->thunderApiError = $unreachable && ! $this->thunderApiErrorDismissed;
     }
 
     public function openMemberModal(int $gaijinId): void
@@ -540,14 +504,10 @@ class PeckUsersDashboard extends Component
             return;
         }
 
-        $previousStatus = $peckUser->status;
-        $updatedStatus = $form['status'];
-
         DB::transaction(function () use ($peckUser, $form, $ownerGaijinId): void {
             $peckUser->fill([
                 'discord_id' => $this->nullableInteger($form['discord_id']),
                 'tz' => $this->nullableInteger($form['tz']),
-                'status' => $form['status'],
                 'sqb_part' => $form['sqb_part'],
             ]);
             $peckUser->save();
@@ -555,25 +515,8 @@ class PeckUsersDashboard extends Component
             $this->syncMemberOwner($peckUser->gaijin_id, $ownerGaijinId);
         });
 
-        if ($previousStatus === 'ex_member' && $updatedStatus !== 'ex_member') {
-            PeckLeaveInfo::query()
-                ->where('user_id', $peckUser->gaijin_id)
-                ->delete();
-        }
-
-        $shouldOpenLeaveInfoModal = $previousStatus !== 'ex_member'
-            && $updatedStatus === 'ex_member'
-            && ! PeckLeaveInfo::query()->where('user_id', $peckUser->gaijin_id)->exists();
-
         $this->memberEditMode = false;
         $this->dispatch('peck-member-saved');
-
-        if ($shouldOpenLeaveInfoModal) {
-            $this->openLeaveInfoModal($peckUser->gaijin_id, true);
-
-            return;
-        }
-
         $this->memberForm = $this->memberFormFromUser($peckUser->fresh());
     }
 
@@ -598,13 +541,12 @@ class PeckUsersDashboard extends Component
     }
 
     /**
-     * @return array{gaijin_id:?string,status:string,discord_id:?string,tz:?string,sqb_part:bool,owner:?string}
+     * @return array{gaijin_id:?string,discord_id:?string,tz:?string,sqb_part:bool,owner:?string}
      */
     protected function memberFormFromUser(PeckUser $peckUser): array
     {
         return [
             'gaijin_id' => $this->nullableString($peckUser->gaijin_id),
-            'status' => $peckUser->status,
             'discord_id' => $this->nullableString($peckUser->discord_id),
             'tz' => $this->nullableString($peckUser->tz),
             'sqb_part' => (bool) $peckUser->sqb_part,
@@ -625,7 +567,7 @@ class PeckUsersDashboard extends Component
             return null;
         }
 
-        return PeckUser::query()->with('leaveInfo')->find($this->selectedMemberGaijinId);
+        return PeckUser::query()->find($this->selectedMemberGaijinId);
     }
 
     public function openAddContextForm(): void
@@ -943,89 +885,6 @@ class PeckUsersDashboard extends Component
         $this->manageRole = null;
         $this->manageActionError = '';
         $this->dispatch('peck-member-role-changed');
-    }
-
-    public function openLeaveInfoModal(int $gaijinId, bool $fromStatusChange = false): void
-    {
-        $this->ensureCanEdit();
-
-        $peckUser = PeckUser::query()
-            ->with('leaveInfo')
-            ->findOrFail($gaijinId);
-
-        if ($peckUser->status !== 'ex_member') {
-            $this->addError('selectedLeaveInfoGaijinId', __('Leave info can only be edited for ex-member users.'));
-
-            return;
-        }
-
-        $this->selectedLeaveInfoGaijinId = $peckUser->gaijin_id;
-        $this->selectedLeaveInfoUserDetails = [
-            'gaijin_id' => (string) $peckUser->gaijin_id,
-            'status' => $peckUser->status,
-            'discord_id' => $this->nullableString($peckUser->discord_id) ?? '—',
-            'current_leave_info' => $peckUser->leaveInfo?->type ?? '—',
-        ];
-        $this->leaveInfoForm = [
-            'type' => $peckUser->leaveInfo?->type ?? PeckLeaveInfo::TYPE_LEFT,
-        ];
-        $this->leaveInfoModalFromStatusChange = $fromStatusChange;
-        $this->showLeaveInfoModal = true;
-        $this->resetValidation();
-    }
-
-    public function closeLeaveInfoModal(): void
-    {
-        $this->ensureCanEdit();
-
-        $this->showLeaveInfoModal = false;
-        $this->selectedLeaveInfoGaijinId = null;
-        $this->leaveInfoForm = [
-            'type' => PeckLeaveInfo::TYPE_LEFT,
-        ];
-        $this->selectedLeaveInfoUserDetails = [
-            'gaijin_id' => '',
-            'status' => '',
-            'discord_id' => '',
-            'current_leave_info' => '',
-        ];
-        $this->leaveInfoModalFromStatusChange = false;
-        $this->resetValidation();
-    }
-
-    public function saveLeaveInfo(): void
-    {
-        $this->ensureCanEdit();
-
-        if ($this->selectedLeaveInfoGaijinId === null) {
-            $this->addError('selectedLeaveInfoGaijinId', __('Select an ex-member before saving leave info.'));
-
-            return;
-        }
-
-        $validated = $this->validate($this->leaveInfoRules());
-        $peckUser = PeckUser::query()->find($this->selectedLeaveInfoGaijinId);
-
-        if ($peckUser === null) {
-            $this->addError('selectedLeaveInfoGaijinId', __('The selected peck user no longer exists.'));
-            $this->closeLeaveInfoModal();
-
-            return;
-        }
-
-        if ($peckUser->status !== 'ex_member') {
-            $this->addError('leaveInfoForm.type', __('Leave info can only be set for ex-member users.'));
-
-            return;
-        }
-
-        PeckLeaveInfo::query()->updateOrCreate(
-            ['user_id' => $peckUser->gaijin_id],
-            ['type' => $validated['leaveInfoForm']['type']],
-        );
-
-        $this->dispatch('peck-leave-info-saved');
-        $this->closeLeaveInfoModal();
     }
 
     public function squadronIdConfigured(): bool
@@ -1590,10 +1449,6 @@ class PeckUsersDashboard extends Component
                 'required',
                 'integer',
             ],
-            'memberForm.status' => [
-                'required',
-                Rule::in($this->allowedStatusesForCurrentForm()),
-            ],
             'memberForm.discord_id' => [
                 'nullable',
                 'integer',
@@ -1610,35 +1465,6 @@ class PeckUsersDashboard extends Component
                 'nullable',
                 'integer',
                 Rule::exists('peck_users', 'gaijin_id'),
-            ],
-        ];
-    }
-
-    /**
-     * @return list<string>
-     */
-    protected function allowedStatusesForCurrentForm(): array
-    {
-        $allowedStatuses = $this->editableStatuses();
-        $currentStatus = $this->memberForm['status'] ?? null;
-
-        if (is_string($currentStatus) && in_array($currentStatus, PeckUser::STATUSES, true) && ! in_array($currentStatus, $allowedStatuses, true)) {
-            $allowedStatuses[] = $currentStatus;
-        }
-
-        return $allowedStatuses;
-    }
-
-    /**
-     * @return array<string, list<mixed>>
-     */
-    protected function leaveInfoRules(): array
-    {
-        return [
-            'leaveInfoForm.type' => [
-                'required',
-                'string',
-                Rule::in($this->leaveInfoTypes()),
             ],
         ];
     }
@@ -1672,7 +1498,7 @@ class PeckUsersDashboard extends Component
         $memberOwnerGaijinId = null;
 
         if ($this->selectedMemberGaijinId !== null) {
-            $selectedMember = PeckUser::query()->with('leaveInfo')->find($this->selectedMemberGaijinId);
+            $selectedMember = PeckUser::query()->find($this->selectedMemberGaijinId);
 
             if ($selectedMember !== null) {
                 $memberOwnerGaijinId = $this->memberOwnerOf($selectedMember->gaijin_id);
@@ -1690,6 +1516,10 @@ class PeckUsersDashboard extends Component
 
         $usernameGaijinIds = [];
 
+        foreach ($shownUsers ?? [] as $peckUser) {
+            $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
+        }
+
         if ($this->selectedMemberGaijinId !== null) {
             $usernameGaijinIds[] = $this->selectedMemberGaijinId;
         }
@@ -1698,19 +1528,21 @@ class PeckUsersDashboard extends Component
             $usernameGaijinIds[] = $memberOwnerGaijinId;
         }
 
-        if ($this->selectedLeaveInfoGaijinId !== null) {
-            $usernameGaijinIds[] = $this->selectedLeaveInfoGaijinId;
-        }
-
         if ($this->showMemberModal && $this->memberEditMode) {
             foreach (PeckUser::query()->get(['gaijin_id']) as $peckUser) {
                 $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
             }
         }
 
+        $unreachable = false;
+
         $usernames = $usernameGaijinIds === []
             ? []
-            : app(ResolveUsernames::class)->resolve($usernameGaijinIds, $this->effectiveThunderToken());
+            : app(ResolveUsernames::class)->resolve($usernameGaijinIds, $this->effectiveThunderToken(), $unreachable);
+
+        $memberStatuses = $this->resolveMemberStatuses($shownUsers, $selectedMember, $unreachable);
+
+        $this->syncThunderApiErrorState($unreachable);
 
         $ownerOptions = collect();
 
@@ -1748,13 +1580,52 @@ class PeckUsersDashboard extends Component
             'selectedContextEntry' => $selectedContextEntry,
             'memberOwnerGaijinId' => $memberOwnerGaijinId,
             'memberUsername' => $usernames[$this->selectedMemberGaijinId] ?? null,
+            'memberStatuses' => $memberStatuses,
             'ownerOptions' => $ownerOptions,
-            'editableStatuses' => $this->editableStatuses(),
-            'leaveInfoTypes' => $this->leaveInfoTypes(),
             'contextTypes' => $this->contextTypes(),
             'assignableRoles' => $this->assignableRoles(),
             'usernames' => $usernames,
         ]);
+    }
+
+    /**
+     * @param  LengthAwarePaginator<PeckUser>|null  $shownUsers
+     * @return array<int, ?string>
+     */
+    protected function resolveMemberStatuses(mixed $shownUsers, ?PeckUser $selectedMember, bool &$unreachable): array
+    {
+        if (! $this->isMembersSection()) {
+            return [];
+        }
+
+        $gaijinIds = [];
+
+        foreach ($shownUsers ?? [] as $peckUser) {
+            $gaijinIds[] = (int) $peckUser->gaijin_id;
+        }
+
+        if ($selectedMember !== null) {
+            $gaijinIds[] = (int) $selectedMember->gaijin_id;
+        }
+
+        $gaijinIds = array_values(array_unique($gaijinIds));
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        $statuses = [];
+
+        foreach ($gaijinIds as $gaijinId) {
+            $statuses[$gaijinId] = $resolver->statusFor($gaijinId, $roster);
+        }
+
+        return $statuses;
     }
 
     protected function nullableString(mixed $value): ?string

@@ -23,11 +23,16 @@ class ResolveUsernames
      * account (.env ThunderAPI login) is used first, falling back to the
      * authenticated user's own ThunderAPI token.
      *
+     * The optional $unreachable flag is set to true when ThunderAPI could not
+     * be reached while resolving the requested usernames.
+     *
      * @param  list<int>  $gaijinIds
      * @return array<int, string>
      */
-    public function resolve(array $gaijinIds, ?string $token = null): array
+    public function resolve(array $gaijinIds, ?string $token = null, ?bool &$unreachable = null): array
     {
+        $unreachable = false;
+
         $gaijinIds = array_values(array_unique(array_filter(
             array_map('intval', $gaijinIds),
             static fn (int $gaijinId): bool => $gaijinId > 0,
@@ -54,7 +59,15 @@ class ResolveUsernames
             return $resolved;
         }
 
-        $token ??= $this->resolveToken();
+        try {
+            $token ??= $this->resolveToken();
+        } catch (ThunderApiUnreachableException) {
+            $unreachable = true;
+
+            return $resolved;
+        } catch (Throwable) {
+            return $resolved;
+        }
 
         if ($token === null) {
             return $resolved;
@@ -62,6 +75,10 @@ class ResolveUsernames
 
         try {
             $fetched = $this->thunderApi->getUsersTerse($token, $missing);
+        } catch (ThunderApiUnreachableException) {
+            $unreachable = true;
+
+            return $resolved;
         } catch (Throwable) {
             return $resolved;
         }
@@ -76,9 +93,13 @@ class ResolveUsernames
 
     protected function resolveToken(): ?string
     {
+        $serverUnreachable = false;
+
         if ($this->serverThunderApi->isConfigured()) {
             try {
                 return $this->serverThunderApi->token();
+            } catch (ThunderApiUnreachableException) {
+                $serverUnreachable = true;
             } catch (Throwable) {
                 // Fall back to the authenticated user's token below.
             }
@@ -86,7 +107,15 @@ class ResolveUsernames
 
         $token = ThunderApiToken::query()->find(auth()->id());
 
-        return $token instanceof ThunderApiToken && ! $token->isExpired() ? $token->token : null;
+        if ($token instanceof ThunderApiToken && ! $token->isExpired()) {
+            return $token->token;
+        }
+
+        if ($serverUnreachable) {
+            throw new ThunderApiUnreachableException('Unable to reach ThunderAPI. Please try again later.');
+        }
+
+        return null;
     }
 
     protected function cacheKey(int $gaijinId): string

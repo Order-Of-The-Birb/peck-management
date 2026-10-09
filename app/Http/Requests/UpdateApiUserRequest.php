@@ -2,9 +2,7 @@
 
 namespace App\Http\Requests;
 
-use App\Models\PeckUser;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class UpdateApiUserRequest extends FormRequest
 {
@@ -30,12 +28,6 @@ class UpdateApiUserRequest extends FormRequest
                 'integer',
                 'between:-11,12',
             ],
-            'status' => [
-                'sometimes',
-                'required',
-                'string',
-                Rule::in(PeckUser::STATUSES),
-            ],
             'sqb_part' => [
                 'sometimes',
                 'boolean',
@@ -49,7 +41,6 @@ class UpdateApiUserRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'status.in' => __('The selected status is invalid.'),
             'tz.between' => __('The timezone must be between -11 and 12.'),
         ];
     }

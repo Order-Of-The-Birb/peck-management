@@ -2,7 +2,6 @@
 
 namespace App\Http\Requests;
 
-use App\Models\PeckUser;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -33,11 +32,6 @@ class StoreApiUserRequest extends FormRequest
                 'integer',
                 'between:-11,12',
             ],
-            'status' => [
-                'required',
-                'string',
-                Rule::in(PeckUser::STATUSES),
-            ],
             'sqb_part' => [
                 'boolean',
             ],
@@ -53,8 +47,6 @@ class StoreApiUserRequest extends FormRequest
             'gaijin_id.required' => __('A Gaijin ID is required.'),
             'gaijin_id.integer' => __('The Gaijin ID must be an integer.'),
             'gaijin_id.unique' => __('That Gaijin ID is already in use.'),
-            'status.required' => __('A status is required.'),
-            'status.in' => __('The selected status is invalid.'),
             'tz.between' => __('The timezone must be between -11 and 12.'),
         ];
     }
