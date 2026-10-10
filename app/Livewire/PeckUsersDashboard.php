@@ -652,12 +652,20 @@ class PeckUsersDashboard extends Component
             return;
         }
 
-        DB::transaction(function () use ($peckUser, $form, $ownerGaijinId): void {
-            $peckUser->fill([
-                'discord_id' => $this->nullableInteger($form['discord_id']),
-                'tz' => $this->nullableInteger($form['tz']),
-                'sqb_part' => $form['sqb_part'],
-            ]);
+        $ownerDiscordId = $ownerGaijinId !== null
+            ? $this->nullableInteger(PeckUser::query()->whereKey($ownerGaijinId)->value('discord_id'))
+            : null;
+
+        DB::transaction(function () use ($peckUser, $form, $ownerGaijinId, $ownerDiscordId): void {
+            $attributes = $ownerGaijinId !== null
+                ? ['discord_id' => $ownerDiscordId]
+                : [
+                    'discord_id' => $this->nullableInteger($form['discord_id']),
+                    'tz' => $this->nullableInteger($form['tz']),
+                    'sqb_part' => $form['sqb_part'],
+                ];
+
+            $peckUser->fill($attributes);
             $peckUser->save();
 
             $this->syncMemberOwner($peckUser->gaijin_id, $ownerGaijinId);
@@ -1739,6 +1747,8 @@ class PeckUsersDashboard extends Component
         }
 
         $memberStatuses = $this->resolveMemberStatuses($shownUsers, $selectedMember, $unreachable);
+        $memberJoinDate = $this->resolveMemberJoinDate($selectedMember, $unreachable);
+        $memberInitiator = $this->resolveMemberInitiator($selectedMember, $unreachable);
 
         $this->syncThunderApiErrorState($unreachable);
 
@@ -1779,6 +1789,8 @@ class PeckUsersDashboard extends Component
             'memberOwnerGaijinId' => $memberOwnerGaijinId,
             'memberUsername' => $usernames[$this->selectedMemberGaijinId] ?? null,
             'memberStatuses' => $memberStatuses,
+            'memberJoinDate' => $memberJoinDate,
+            'memberInitiator' => $memberInitiator,
             'ownerOptions' => $ownerOptions,
             'contextTypes' => $this->contextTypes(),
             'assignableRoles' => $this->assignableRoles(),
@@ -1905,6 +1917,52 @@ class PeckUsersDashboard extends Component
         }
 
         return $this->resolveStatusesFor($members, $unreachable);
+    }
+
+    /**
+     * Resolve the selected member's join date from the squadron roster.
+     */
+    protected function resolveMemberJoinDate(?PeckUser $selectedMember, bool &$unreachable): ?string
+    {
+        if (! $this->isMembersSection() || $selectedMember === null) {
+            return null;
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        $joinTimestamp = $resolver->joinDateFor($selectedMember->gaijin_id, $roster);
+
+        return $joinTimestamp !== null
+            ? Carbon::createFromTimestamp($joinTimestamp)->format('Y-m-d')
+            : null;
+    }
+
+    /**
+     * Resolve the selected member's initiator (recruiter) from the squadron roster.
+     */
+    protected function resolveMemberInitiator(?PeckUser $selectedMember, bool &$unreachable): ?string
+    {
+        if (! $this->isMembersSection() || $selectedMember === null) {
+            return null;
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        $initiator = $resolver->initiatorFor($selectedMember->gaijin_id, $roster);
+
+        if ($initiator === null) {
+            return null;
+        }
+
+        return $initiator['nickname'] !== null
+            ? $initiator['nickname'].' ('.$initiator['initiator'].')'
+            : (string) $initiator['initiator'];
     }
 
     protected function nullableString(mixed $value): ?string

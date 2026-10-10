@@ -4,9 +4,11 @@ use App\Livewire\PeckUsersDashboard;
 use App\Models\PeckAlt;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
+use App\Models\PeckUserData;
 use App\Models\ThunderApiServerToken;
 use App\Models\ThunderApiToken;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
@@ -153,6 +155,60 @@ test('members list can be sorted by status', function () {
         ->call('sort', 'status')
         ->assertSet('sortBy', 'status')
         ->assertSeeInOrder(['applicant', 'ex_member', 'member']);
+});
+
+test('member modal shows the join date', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 802300]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [[
+                'uid' => (string) $member->gaijin_id,
+                'nick' => 'M',
+                'role' => 3,
+                'date' => Carbon::parse('2023-05-04 12:00:00', 'UTC')->timestamp,
+            ]],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Join date')
+        ->assertSee('2023-05-04');
+});
+
+test('member modal shows the initiator', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 802301]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [[
+                'uid' => (string) $member->gaijin_id,
+                'nick' => 'M',
+                'role' => 3,
+                'date' => 1683201600,
+                'initiator' => '802302',
+                'initiator_nick' => 'RecruiterBird',
+            ]],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Initiator')
+        ->assertSee('RecruiterBird (802302)');
 });
 
 test('refresh button is only shown to users with write access', function () {
@@ -417,6 +473,51 @@ test('an admin can unassign an owner from a member', function () {
         ->assertHasNoErrors();
 
     expect(PeckAlt::query()->where('alt_id', $member->gaijin_id)->exists())->toBeFalse();
+});
+
+test('assigning an owner makes the member inherit the owner discord id', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 800402, 'discord_id' => null]);
+    $owner = PeckUser::factory()->create(['gaijin_id' => 800403]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('enterMemberEditMode')
+        ->set('memberForm.owner', (string) $owner->gaijin_id)
+        ->call('saveMember')
+        ->assertHasNoErrors();
+
+    expect(PeckUser::query()->whereKey($member->gaijin_id)->value('discord_id'))
+        ->toBe($owner->discord_id);
+});
+
+test('assigning an owner preserves the owner timezone and sqb participation', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $ownerData = PeckUserData::factory()->create(['timezone' => 2, 'sqb_part' => true]);
+    $owner = PeckUser::factory()->create(['gaijin_id' => 800405, 'discord_id' => $ownerData->discord_id]);
+    $member = PeckUser::factory()->create(['gaijin_id' => 800404, 'discord_id' => null]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('enterMemberEditMode')
+        ->set('memberForm.owner', (string) $owner->gaijin_id)
+        ->call('saveMember')
+        ->assertHasNoErrors();
+
+    $ownerData->refresh();
+
+    expect($ownerData->timezone)->toBe(2)
+        ->and($ownerData->sqb_part)->toBeTrue();
 });
 
 test('context sub-tab lists misc entries with a view button and absences without one', function () {

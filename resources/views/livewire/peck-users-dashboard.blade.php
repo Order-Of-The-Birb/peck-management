@@ -452,23 +452,37 @@
                         @if ($memberTab === 'member')
                             <div class="space-y-4">
                                 <div class="grid gap-4 md:grid-cols-2">
-                                    <flux:input
-                                        :label="__('Gaijin ID')"
-                                        :value="$selectedMember->gaijin_id"
-                                        readonly
-                                    />
+                                    @if (! $memberEditMode)
+                                        <flux:input
+                                            :label="__('Gaijin ID')"
+                                            :value="$selectedMember->gaijin_id"
+                                            readonly
+                                        />
 
-                                    <flux:input
-                                        :label="__('Username')"
-                                        :value="$memberUsername ?? '—'"
-                                        readonly
-                                    />
+                                        <flux:input
+                                            :label="__('Username')"
+                                            :value="$memberUsername ?? '—'"
+                                            readonly
+                                        />
 
-                                    <flux:input
-                                        :label="__('Status')"
-                                        :value="$memberStatuses[$selectedMember->gaijin_id] ?? '—'"
-                                        readonly
-                                    />
+                                        <flux:input
+                                            :label="__('Status')"
+                                            :value="$memberStatuses[$selectedMember->gaijin_id] ?? '—'"
+                                            readonly
+                                        />
+
+                                        <flux:input
+                                            :label="__('Join date')"
+                                            :value="$memberJoinDate ?? '—'"
+                                            readonly
+                                        />
+
+                                        <flux:input
+                                            :label="__('Initiator')"
+                                            :value="$memberInitiator ?? '—'"
+                                            readonly
+                                        />
+                                    @endif
 
                                     <flux:input
                                         wire:model="memberForm.discord_id"
@@ -495,7 +509,7 @@
                                 </div>
 
                                 @if ($memberEditMode)
-                                    <div class="space-y-2">
+                                    <div class="space-y-2 border-t border-neutral-200 pt-4 dark:border-neutral-700">
                                         <flux:input
                                             wire:model.live="ownerSearch"
                                             :label="__('Search owner by username or Gaijin ID')"
