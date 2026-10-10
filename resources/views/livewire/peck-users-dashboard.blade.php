@@ -112,7 +112,14 @@
                                         @endif
                                     </button>
                                 </th>
-                                <th class="px-3 py-2">{{ __('Username') }}</th>
+                                <th class="px-3 py-2">
+                                    <button type="button" wire:click="sort('username')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
+                                        {{ __('Username') }}
+                                        @if ($this->isSortedBy('username'))
+                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
+                                        @endif
+                                    </button>
+                                </th>
                                 <th class="px-3 py-2">
                                     <button type="button" wire:click="sort('discord_id')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
                                         {{ __('Discord ID') }}
@@ -121,7 +128,14 @@
                                         @endif
                                     </button>
                                 </th>
-                                <th class="px-3 py-2">{{ __('Status') }}</th>
+                                <th class="px-3 py-2">
+                                    <button type="button" wire:click="sort('status')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
+                                        {{ __('Status') }}
+                                        @if ($this->isSortedBy('status'))
+                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
+                                        @endif
+                                    </button>
+                                </th>
                                 <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
                             </tr>
                         </thead>

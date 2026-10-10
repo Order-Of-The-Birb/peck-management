@@ -334,6 +334,8 @@ class PeckUsersDashboard extends Component
         return [
             'gaijin_id',
             'discord_id',
+            'username',
+            'status',
         ];
     }
 
@@ -1661,7 +1663,7 @@ class PeckUsersDashboard extends Component
         $shownUsers = null;
 
         if ($this->isMembersSection()) {
-            $shownUsers = PeckUser::query()
+            $membersQuery = PeckUser::query()
                 ->when($searchTerm !== '', function (Builder $query) use ($searchTerm, $usernameMatches): void {
                     $like = '%'.$searchTerm.'%';
 
@@ -1674,10 +1676,16 @@ class PeckUsersDashboard extends Component
                             $innerQuery->orWhereIn('gaijin_id', $usernameMatches);
                         }
                     });
-                })
-                ->orderBy($sortBy, $sortDirection)
-                ->orderBy('gaijin_id')
-                ->paginate(15);
+                });
+
+            if (in_array($sortBy, ['username', 'status'], true)) {
+                $shownUsers = $this->paginateMembersByResolvedColumn($membersQuery, $sortBy, $sortDirection, $unreachable);
+            } else {
+                $shownUsers = $membersQuery
+                    ->orderBy($sortBy, $sortDirection)
+                    ->orderBy('gaijin_id')
+                    ->paginate(15);
+            }
         }
 
         $selectedMember = null;
@@ -1779,26 +1787,84 @@ class PeckUsersDashboard extends Component
     }
 
     /**
-     * @param  LengthAwarePaginator<PeckUser>|null  $shownUsers
-     * @return array<int, ?string>
+     * Paginate the members list by a value (username or status) that is only
+     * known after each member has been resolved through ThunderAPI.
+     *
+     * @return LengthAwarePaginator<PeckUser>
      */
-    protected function resolveMemberStatuses(mixed $shownUsers, ?PeckUser $selectedMember, bool &$unreachable): array
+    protected function paginateMembersByResolvedColumn(Builder $query, string $column, string $direction, bool &$unreachable): LengthAwarePaginator
     {
-        if (! $this->isMembersSection()) {
-            return [];
-        }
+        $members = $query->get();
 
+        $values = $column === 'status'
+            ? $this->resolveStatusesFor($members, $unreachable)
+            : $this->resolveUsernamesFor($members, $unreachable);
+
+        $sorted = $members->sort(function (PeckUser $left, PeckUser $right) use ($values, $direction): int {
+            $leftValue = mb_strtolower((string) ($values[$left->gaijin_id] ?? ''));
+            $rightValue = mb_strtolower((string) ($values[$right->gaijin_id] ?? ''));
+
+            $comparison = $leftValue <=> $rightValue;
+
+            if ($comparison === 0) {
+                return $left->gaijin_id <=> $right->gaijin_id;
+            }
+
+            return $direction === 'desc' ? -$comparison : $comparison;
+        })->values();
+
+        $page = max(1, (int) $this->getPage());
+        $perPage = 15;
+
+        return new LengthAwarePaginator(
+            $sorted->forPage($page, $perPage)->values(),
+            $sorted->count(),
+            $perPage,
+            $page,
+        );
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return list<int>
+     */
+    protected function memberGaijinIds(iterable $members): array
+    {
         $gaijinIds = [];
 
-        foreach ($shownUsers ?? [] as $peckUser) {
+        foreach ($members as $peckUser) {
             $gaijinIds[] = (int) $peckUser->gaijin_id;
         }
 
-        if ($selectedMember !== null) {
-            $gaijinIds[] = (int) $selectedMember->gaijin_id;
+        return array_values(array_unique($gaijinIds));
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return array<int, string>
+     */
+    protected function resolveUsernamesFor(iterable $members, bool &$unreachable): array
+    {
+        $gaijinIds = $this->memberGaijinIds($members);
+
+        if ($gaijinIds === []) {
+            return [];
         }
 
-        $gaijinIds = array_values(array_unique($gaijinIds));
+        $usernamesUnreachable = false;
+        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds, $this->effectiveThunderToken(), $usernamesUnreachable);
+        $unreachable = $unreachable || $usernamesUnreachable;
+
+        return $usernames;
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return array<int, ?string>
+     */
+    protected function resolveStatusesFor(iterable $members, bool &$unreachable): array
+    {
+        $gaijinIds = $this->memberGaijinIds($members);
 
         if ($gaijinIds === []) {
             return [];
@@ -1816,6 +1882,29 @@ class PeckUsersDashboard extends Component
         }
 
         return $statuses;
+    }
+
+    /**
+     * @param  LengthAwarePaginator<PeckUser>|null  $shownUsers
+     * @return array<int, ?string>
+     */
+    protected function resolveMemberStatuses(mixed $shownUsers, ?PeckUser $selectedMember, bool &$unreachable): array
+    {
+        if (! $this->isMembersSection()) {
+            return [];
+        }
+
+        $members = [];
+
+        foreach ($shownUsers ?? [] as $peckUser) {
+            $members[] = $peckUser;
+        }
+
+        if ($selectedMember !== null) {
+            $members[] = $selectedMember;
+        }
+
+        return $this->resolveStatusesFor($members, $unreachable);
     }
 
     protected function nullableString(mixed $value): ?string

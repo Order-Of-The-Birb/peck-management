@@ -106,6 +106,55 @@ test('members list is searchable by username', function () {
         ->assertDontSee((string) $other->gaijin_id);
 });
 
+test('members list can be sorted by username', function () {
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $first = PeckUser::factory()->create(['gaijin_id' => 800013]);
+    $second = PeckUser::factory()->create(['gaijin_id' => 800014]);
+
+    Http::fake([
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            (string) $first->gaijin_id => ['nick' => 'ZuluBird'],
+            (string) $second->gaijin_id => ['nick' => 'AlphaBird'],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('sort', 'username')
+        ->assertSet('sortBy', 'username')
+        ->assertSeeInOrder(['AlphaBird', 'ZuluBird'])
+        ->call('sort', 'username')
+        ->assertSet('sortDirection', 'desc')
+        ->assertSeeInOrder(['ZuluBird', 'AlphaBird']);
+});
+
+test('members list can be sorted by status', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 802200]);
+    $applicant = PeckUser::factory()->create(['gaijin_id' => 802201]);
+    $exMember = PeckUser::factory()->create(['gaijin_id' => 802202]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('sort', 'status')
+        ->assertSet('sortBy', 'status')
+        ->assertSeeInOrder(['applicant', 'ex_member', 'member']);
+});
+
 test('refresh button is only shown to users with write access', function () {
     $this->actingAs(User::factory()->create(['level' => 1]));
 
