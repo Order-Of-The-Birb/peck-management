@@ -207,7 +207,7 @@ class UserController extends Controller
 
     public function destroyContext(PeckUser $peckUser, int $contextId): JsonResponse
     {
-        abort_unless(request()->user()?->level >= 1, 403);
+        abort_unless(request()->user()?->canWrite() ?? false, 403);
 
         $this->findUserContextOrFail($peckUser, $contextId)->delete();
 

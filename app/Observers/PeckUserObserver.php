@@ -24,6 +24,6 @@ class PeckUserObserver
 
     protected function dispatchCacheInvalidation(): void
     {
-        NotifyDiscordBotCacheInvalidation::dispatch()->onConnection('database');
+        NotifyDiscordBotCacheInvalidation::dispatchDebounced();
     }
 }

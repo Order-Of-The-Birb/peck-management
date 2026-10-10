@@ -87,6 +87,16 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasOne(ThunderApiToken::class);
     }
 
+    /**
+     * Determine whether the user may perform write actions on the site.
+     *
+     * Users who have not verified their email address are limited to read-only access.
+     */
+    public function canWrite(): bool
+    {
+        return (int) $this->level >= 1 && $this->hasVerifiedEmail();
+    }
+
     public function canManageSquadron(): bool
     {
         $gaijinId = $this->thunderApiToken()->value('gaijin_id');

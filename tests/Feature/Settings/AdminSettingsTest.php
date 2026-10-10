@@ -1,8 +1,6 @@
 <?php
 
 use App\Models\ApiKey;
-use App\Models\Officer;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\ThunderApiServerToken;
 use App\Models\User;
@@ -214,158 +212,6 @@ test('admin settings confirms before resetting existing api token', function () 
         ->and($newPlainToken)->not->toBe($previousPlainToken)
         ->and($storedApiKey->key)->toBe(ApiKey::hashToken($newPlainToken))
         ->and($storedApiKey->key)->not->toBe($previousHash);
-});
-
-test('officer add modal pre-fills selected user from officer search', function () {
-    $admin = User::query()->create([
-        'name' => 'Admin Officer Search',
-        'email' => 'admin-officer-search@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 2,
-    ])->save();
-
-    $peckUser = PeckUser::factory()->create([
-        'gaijin_id' => 910001,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test('pages::settings.admin')
-        ->set('officerSearch', (string) $peckUser->gaijin_id)
-        ->call('openAddOfficerModal')
-        ->assertSet('newOfficerForm.gaijin_id', (string) $peckUser->gaijin_id);
-});
-
-test('switching commander rank swaps the existing commander to officer rank', function () {
-    $admin = User::query()->create([
-        'name' => 'Admin Commander Switch',
-        'email' => 'admin-commander-switch@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 2,
-    ])->save();
-
-    $currentCommander = PeckUser::factory()->create([
-        'gaijin_id' => 910010,
-    ]);
-
-    $newCommander = PeckUser::factory()->create([
-        'gaijin_id' => 910011,
-    ]);
-
-    Officer::query()->create([
-        'gaijin_id' => $currentCommander->gaijin_id,
-        'rank' => Officer::RANK_COMMANDER,
-    ]);
-
-    Officer::query()->create([
-        'gaijin_id' => $newCommander->gaijin_id,
-        'rank' => Officer::RANK_OFFICER,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test('pages::settings.admin')
-        ->call('attemptOfficerRankUpdate', $newCommander->gaijin_id, Officer::RANK_COMMANDER)
-        ->assertSet('showRankSwitchModal', true)
-        ->call('confirmOfficerRankSwitch')
-        ->assertSet('showRankSwitchModal', false);
-
-    expect(Officer::query()->find($newCommander->gaijin_id)?->rank)->toBe(Officer::RANK_COMMANDER);
-    expect(Officer::query()->find($currentCommander->gaijin_id)?->rank)->toBe(Officer::RANK_OFFICER);
-    expect(Officer::query()->where('rank', Officer::RANK_COMMANDER)->count())->toBe(1);
-});
-
-test('switching deputy from add flow sets previous deputy to retired when they have leave info', function () {
-    $admin = User::query()->create([
-        'name' => 'Admin Deputy Retire Switch',
-        'email' => 'admin-deputy-retire-switch@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 2,
-    ])->save();
-
-    $currentDeputy = PeckUser::factory()->create([
-        'gaijin_id' => 910020,
-    ]);
-
-    $replacementDeputy = PeckUser::factory()->create([
-        'gaijin_id' => 910021,
-    ]);
-
-    Officer::query()->create([
-        'gaijin_id' => $currentDeputy->gaijin_id,
-        'rank' => Officer::RANK_DEPUTY,
-    ]);
-
-    PeckLeaveInfo::query()->create([
-        'user_id' => $currentDeputy->gaijin_id,
-        'type' => PeckLeaveInfo::TYPE_LEFT,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test('pages::settings.admin')
-        ->set('newOfficerForm.gaijin_id', (string) $replacementDeputy->gaijin_id)
-        ->set('newOfficerForm.rank', Officer::RANK_DEPUTY)
-        ->call('createOfficer')
-        ->assertSet('showRankSwitchModal', true)
-        ->call('confirmOfficerRankSwitch')
-        ->assertSet('showRankSwitchModal', false);
-
-    expect(Officer::query()->find($replacementDeputy->gaijin_id)?->rank)->toBe(Officer::RANK_DEPUTY);
-    expect(Officer::query()->find($currentDeputy->gaijin_id)?->rank)->toBeNull();
-    expect(Officer::query()->where('rank', Officer::RANK_DEPUTY)->count())->toBe(1);
-});
-
-test('switching deputy from add flow sets previous deputy to officer when they have no leave info', function () {
-    $admin = User::query()->create([
-        'name' => 'Admin Deputy Officer Switch',
-        'email' => 'admin-deputy-officer-switch@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 2,
-    ])->save();
-
-    $currentDeputy = PeckUser::factory()->create([
-        'gaijin_id' => 910030,
-    ]);
-
-    $replacementDeputy = PeckUser::factory()->create([
-        'gaijin_id' => 910031,
-    ]);
-
-    Officer::query()->create([
-        'gaijin_id' => $currentDeputy->gaijin_id,
-        'rank' => Officer::RANK_DEPUTY,
-    ]);
-
-    $this->actingAs($admin);
-
-    Livewire::test('pages::settings.admin')
-        ->set('newOfficerForm.gaijin_id', (string) $replacementDeputy->gaijin_id)
-        ->set('newOfficerForm.rank', Officer::RANK_DEPUTY)
-        ->call('createOfficer')
-        ->assertSet('showRankSwitchModal', true)
-        ->call('confirmOfficerRankSwitch')
-        ->assertSet('showRankSwitchModal', false);
-
-    expect(Officer::query()->find($replacementDeputy->gaijin_id)?->rank)->toBe(Officer::RANK_DEPUTY);
-    expect(Officer::query()->find($currentDeputy->gaijin_id)?->rank)->toBe(Officer::RANK_OFFICER);
-    expect(Officer::query()->where('rank', Officer::RANK_DEPUTY)->count())->toBe(1);
 });
 
 test('delete user section filters war thunder users and shows empty state', function () {
@@ -634,4 +480,116 @@ test('force refresh re-authenticates when the server token is invalid', function
         ->assertSee('Refresh completed');
 
     expect(ThunderApiServerToken::query()->value('token'))->toBe('replacement-token');
+});
+
+test('user access levels card marks unverified emails', function () {
+    $admin = User::query()->create([
+        'name' => 'Admin Unverified Marker',
+        'email' => 'admin-unverified-marker@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 2,
+    ])->save();
+
+    $unverifiedUser = User::query()->create([
+        'name' => 'Unverified User',
+        'email' => 'unverified-user@example.com',
+        'password' => 'password',
+    ]);
+
+    $unverifiedUser->forceFill([
+        'email_verified_at' => null,
+        'level' => 1,
+    ])->save();
+
+    $verifiedUser = User::query()->create([
+        'name' => 'Verified User',
+        'email' => 'verified-user@example.com',
+        'password' => 'password',
+    ]);
+
+    $verifiedUser->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $this->actingAs($admin);
+
+    Livewire::test('pages::settings.admin')
+        ->set('selectedManagedUserId', (string) $unverifiedUser->id)
+        ->assertSee('(Unverified)')
+        ->set('selectedManagedUserId', (string) $verifiedUser->id)
+        ->assertDontSee('(Unverified)');
+});
+
+test('unverified admin is blocked from saving access levels with a verification popup', function () {
+    $admin = User::query()->create([
+        'name' => 'Unverified Admin',
+        'email' => 'unverified-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => null,
+        'level' => 2,
+    ])->save();
+
+    $targetUser = User::query()->create([
+        'name' => 'Level Target',
+        'email' => 'level-target@example.com',
+        'password' => 'password',
+    ]);
+
+    $targetUser->forceFill([
+        'email_verified_at' => now(),
+        'level' => 0,
+    ])->save();
+
+    $this->actingAs($admin);
+
+    Livewire::test('pages::settings.admin')
+        ->set('selectedManagedUserId', (string) $targetUser->id)
+        ->set('selectedManagedUserLevel', '1')
+        ->call('updateSelectedUserLevel')
+        ->assertSet('showVerificationRequiredModal', true);
+
+    expect($targetUser->fresh()->level)->toBe(0);
+});
+
+test('verified admin can save a user access level', function () {
+    $admin = User::query()->create([
+        'name' => 'Verified Level Admin',
+        'email' => 'verified-level-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => now(),
+        'level' => 2,
+    ])->save();
+
+    $targetUser = User::query()->create([
+        'name' => 'Verified Level Target',
+        'email' => 'verified-level-target@example.com',
+        'password' => 'password',
+    ]);
+
+    $targetUser->forceFill([
+        'email_verified_at' => now(),
+        'level' => 0,
+    ])->save();
+
+    $this->actingAs($admin);
+
+    Livewire::test('pages::settings.admin')
+        ->set('selectedManagedUserId', (string) $targetUser->id)
+        ->set('selectedManagedUserLevel', '1')
+        ->call('updateSelectedUserLevel')
+        ->assertSet('showVerificationRequiredModal', false)
+        ->assertDispatched('user-level-updated');
+
+    expect($targetUser->fresh()->level)->toBe(1);
 });

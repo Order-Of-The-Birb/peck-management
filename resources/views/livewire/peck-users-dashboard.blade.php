@@ -21,9 +21,83 @@
                     <div class="ml-auto w-xl">
                         <flux:input
                             wire:model.live.debounce.300ms="search"
-                            :placeholder="__('Search by Gaijin ID or Discord ID')"
+                            :placeholder="__('Search by Gaijin ID, Discord ID, or username')"
                         />
                     </div>
+
+                    @if ($this->canPartialRefresh())
+                        <div
+                            class="relative"
+                            x-data="{
+                                remaining: {{ $this->partialRefreshCooldownSeconds() }},
+                                open: false,
+                                timer: null,
+
+                                label() {
+                                    const seconds = Math.max(0, this.remaining);
+                                    const minutes = Math.floor(seconds / 60);
+
+                                    return 'Ends in ' + minutes + ':' + String(seconds % 60).padStart(2, '0');
+                                },
+
+                                init() {
+                                    this.startTimer();
+
+                                    this.$wire.on('partial-refresh-cooldown-started', (event) => {
+                                        this.remaining = Number(event?.seconds) || 0;
+                                        this.startTimer();
+                                    });
+                                },
+
+                                startTimer() {
+                                    if (this.timer) {
+                                        clearInterval(this.timer);
+                                        this.timer = null;
+                                    }
+
+                                    if (this.remaining <= 0) {
+                                        return;
+                                    }
+
+                                    this.timer = setInterval(() => {
+                                        if (this.remaining > 0) {
+                                            this.remaining -= 1;
+                                        }
+
+                                        if (this.remaining <= 0) {
+                                            clearInterval(this.timer);
+                                            this.timer = null;
+                                        }
+                                    }, 1000);
+                                },
+                            }"
+                            @mouseenter="open = true"
+                            @mouseleave="open = false"
+                        >
+                            <flux:button
+                                type="button"
+                                variant="filled"
+                                wire:click="requestPartialRefresh"
+                                wire:loading.attr="disabled"
+                                wire:target="requestPartialRefresh"
+                                x-bind:disabled="remaining > 0"
+                                class="bg-white! text-black! border border-neutral-300! hover:bg-neutral-100!"
+                            >
+                                {{ __('Refresh') }}
+                            </flux:button>
+
+                            <div
+                                x-show="open && remaining > 0"
+                                x-transition.opacity
+                                style="display: none"
+                                class="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-56 -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-center text-xs text-black shadow-lg"
+                                role="tooltip"
+                            >
+                                <span class="block font-medium">{{ __('This function is on a cooldown') }}</span>
+                                <span class="block" x-text="label()"></span>
+                            </div>
+                        </div>
+                    @endif
                 </div>
 
                 <div class="mt-6 overflow-x-auto">
@@ -701,6 +775,29 @@
                 @endif
             </flux:modal>
         @endif
+
+        <flux:modal wire:model="showVerificationRequiredModal" class="max-w-md">
+            <div class="space-y-6">
+                <div>
+                    <flux:heading size="lg">{{ __('Email verification required') }}</flux:heading>
+                    <flux:text class="mt-2">
+                        {{ __('You must verify your email address before you can make changes.') }}
+                    </flux:text>
+                </div>
+
+                <div class="flex items-center justify-end gap-3">
+                    <flux:modal.close>
+                        <flux:button type="button" variant="ghost" wire:click="dismissVerificationRequiredModal">
+                            {{ __('Close') }}
+                        </flux:button>
+                    </flux:modal.close>
+
+                    <flux:button type="button" variant="primary" :href="route('profile.edit')" wire:navigate>
+                        {{ __('Verify email') }}
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
 
         @if ($thunderApiError)
             <div

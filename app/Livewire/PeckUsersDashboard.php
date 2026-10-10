@@ -2,6 +2,7 @@
 
 namespace App\Livewire;
 
+use App\Actions\RefreshPeckDB;
 use App\Actions\ResolveSquadronRoster;
 use App\Actions\ResolveUsernames;
 use App\Actions\ServerThunderApi;
@@ -17,12 +18,16 @@ use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Throwable;
+
+use function Illuminate\Support\defer;
 
 class PeckUsersDashboard extends Component
 {
@@ -108,6 +113,8 @@ class PeckUsersDashboard extends Component
 
     public string $manageActionError = '';
 
+    public bool $showVerificationRequiredModal = false;
+
     public bool $thunderPromptDismissed = false;
 
     public bool $thunderApiError = false;
@@ -185,6 +192,117 @@ class PeckUsersDashboard extends Component
     public function updatingSearch(): void
     {
         $this->resetPage();
+    }
+
+    /**
+     * Resolve nicknames for every stored member so the local member database
+     * can be searched by username.
+     *
+     * @return array<int, string>
+     */
+    protected function resolveAllMemberUsernames(?bool &$unreachable = null): array
+    {
+        $gaijinIds = PeckUser::query()
+            ->pluck('gaijin_id')
+            ->map(fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        return app(ResolveUsernames::class)->resolve($gaijinIds, $this->effectiveThunderToken(), $unreachable);
+    }
+
+    /**
+     * Return the Gaijin IDs whose resolved nickname contains the search term.
+     *
+     * @param  array<int, string>|null  $usernames
+     * @return list<int>
+     */
+    protected function matchingUsernameIds(?array $usernames, string $term): array
+    {
+        if ($usernames === null || $usernames === []) {
+            return [];
+        }
+
+        $term = mb_strtolower($term);
+
+        $matches = [];
+
+        foreach ($usernames as $gaijinId => $nickname) {
+            if (is_string($nickname) && str_contains(mb_strtolower($nickname), $term)) {
+                $matches[] = (int) $gaijinId;
+            }
+        }
+
+        return $matches;
+    }
+
+    public function partialRefreshCooldownMinutes(): int
+    {
+        return max(1, (int) config('peck.partial_refresh.cooldown_minutes', 5));
+    }
+
+    public function partialRefreshCooldownSeconds(): int
+    {
+        $startedAt = Cache::get((string) config('peck.partial_refresh.lock_key'));
+
+        if (! is_numeric($startedAt)) {
+            return 0;
+        }
+
+        return max(0, ($this->partialRefreshCooldownMinutes() * 60) - (now()->timestamp - (int) $startedAt));
+    }
+
+    public function canPartialRefresh(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && $user->canWrite();
+    }
+
+    public function requestPartialRefresh(): void
+    {
+        abort_unless($this->canPartialRefresh(), 403);
+
+        $lockKey = (string) config('peck.partial_refresh.lock_key');
+        $resultKey = (string) config('peck.partial_refresh.result_key');
+        $cooldownMinutes = $this->partialRefreshCooldownMinutes();
+        $now = now();
+
+        if (! Cache::add($lockKey, $now->timestamp, $now->copy()->addMinutes($cooldownMinutes))) {
+            return;
+        }
+
+        Cache::forget($resultKey);
+
+        $this->dispatch('partial-refresh-cooldown-started', ['seconds' => $cooldownMinutes * 60]);
+
+        defer(function () use ($resultKey, $cooldownMinutes): void {
+            try {
+                $stats = app(RefreshPeckDB::class)->handle();
+
+                Cache::put($resultKey, [
+                    'status' => 'success',
+                    'message' => __('Refresh completed. :created users created.', [
+                        'created' => $stats['users_created'],
+                    ]),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::info('Manual partial PECK database refresh completed.', $stats);
+            } catch (Throwable $throwable) {
+                Cache::put($resultKey, [
+                    'status' => 'error',
+                    'message' => $throwable->getMessage(),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::error('Manual partial PECK database refresh failed.', [
+                    'message' => $throwable->getMessage(),
+                ]);
+            }
+        }, 'peck-partial-refresh')->always();
     }
 
     public function sort(string $column): void
@@ -373,9 +491,31 @@ class PeckUsersDashboard extends Component
         return in_array($this->thunderRole(), [self::ROLE_DEPUTY, self::ROLE_COMMANDER], true);
     }
 
-    protected function ensureCanEdit(): void
+    protected function ensureCanEdit(): bool
     {
-        abort_unless($this->canEdit(), 403);
+        if (! $this->canEdit()) {
+            abort(403);
+        }
+
+        return $this->ensureVerifiedForEdit();
+    }
+
+    protected function ensureVerifiedForEdit(): bool
+    {
+        $user = auth()->user();
+
+        if ($user instanceof User && ! $user->hasVerifiedEmail()) {
+            $this->showVerificationRequiredModal = true;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    public function dismissVerificationRequiredModal(): void
+    {
+        $this->showVerificationRequiredModal = false;
     }
 
     public function dismissThunderApiError(): void
@@ -451,7 +591,9 @@ class PeckUsersDashboard extends Component
 
     public function enterMemberEditMode(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $peckUser = $this->selectedMember();
 
@@ -467,7 +609,9 @@ class PeckUsersDashboard extends Component
 
     public function cancelMemberEdit(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $peckUser = $this->selectedMember();
 
@@ -482,7 +626,9 @@ class PeckUsersDashboard extends Component
 
     public function saveMember(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $peckUser = $this->selectedMember();
 
@@ -572,7 +718,9 @@ class PeckUsersDashboard extends Component
 
     public function openAddContextForm(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         if ($this->selectedMemberGaijinId === null) {
             $this->addError('selectedMemberGaijinId', __('Select a member before adding context.'));
@@ -587,7 +735,9 @@ class PeckUsersDashboard extends Component
 
     public function closeAddContextForm(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $this->showAddContextForm = false;
         $this->contextForm = $this->blankContextForm();
@@ -596,7 +746,9 @@ class PeckUsersDashboard extends Component
 
     public function addContext(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         if ($this->selectedMemberGaijinId === null) {
             $this->addError('selectedMemberGaijinId', __('Select a member before adding context.'));
@@ -636,7 +788,9 @@ class PeckUsersDashboard extends Component
 
     public function removeContext(int $contextId): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         if ($this->selectedMemberGaijinId === null) {
             return;
@@ -672,7 +826,9 @@ class PeckUsersDashboard extends Component
 
     public function enterContextEntryEditMode(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $entry = $this->selectedContextEntry();
 
@@ -685,7 +841,9 @@ class PeckUsersDashboard extends Component
 
     public function cancelContextEntryEdit(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $entry = $this->selectedContextEntry();
 
@@ -698,7 +856,9 @@ class PeckUsersDashboard extends Component
 
     public function saveContextEntry(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $entry = $this->selectedContextEntry();
 
@@ -778,7 +938,9 @@ class PeckUsersDashboard extends Component
 
     public function openKickConfirmModal(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         if ($this->selectedMemberGaijinId === null) {
             return;
@@ -797,7 +959,9 @@ class PeckUsersDashboard extends Component
 
     public function kickMember(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $gaijinId = $this->selectedMemberGaijinId;
 
@@ -841,7 +1005,9 @@ class PeckUsersDashboard extends Component
 
     public function changeMemberRole(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         if (! $this->canChangeRoles()) {
             abort(403);
@@ -1250,6 +1416,10 @@ class PeckUsersDashboard extends Component
 
     public function openRejectApplicantModal(): void
     {
+        if (! $this->ensureVerifiedForEdit()) {
+            return;
+        }
+
         $this->rejectApplicantReason = '';
         $this->applicantActionError = '';
         $this->showRejectApplicantModal = true;
@@ -1274,6 +1444,10 @@ class PeckUsersDashboard extends Component
 
     public function performApplicantAction(string $action, string $message = ''): void
     {
+        if (! $this->ensureVerifiedForEdit()) {
+            return;
+        }
+
         $uid = $this->selectedApplicantUid;
 
         if ($uid === null || ! in_array($action, ['accept', 'reject'], true)) {
@@ -1474,17 +1648,31 @@ class PeckUsersDashboard extends Component
         $sortBy = $this->isSortableColumn($this->sortBy) ? $this->sortBy : 'gaijin_id';
         $sortDirection = $this->sortDirection === 'desc' ? 'desc' : 'asc';
 
+        $searchTerm = trim($this->search);
+        $unreachable = false;
+        $allMemberUsernames = null;
+
+        if ($this->isMembersSection() && $searchTerm !== '' && ! ctype_digit($searchTerm)) {
+            $allMemberUsernames = $this->resolveAllMemberUsernames($unreachable);
+        }
+
+        $usernameMatches = $this->matchingUsernameIds($allMemberUsernames, $searchTerm);
+
         $shownUsers = null;
 
         if ($this->isMembersSection()) {
             $shownUsers = PeckUser::query()
-                ->when($this->search !== '', function (Builder $query): void {
-                    $searchTerm = '%'.$this->search.'%';
+                ->when($searchTerm !== '', function (Builder $query) use ($searchTerm, $usernameMatches): void {
+                    $like = '%'.$searchTerm.'%';
 
-                    $query->where(function (Builder $innerQuery) use ($searchTerm): void {
+                    $query->where(function (Builder $innerQuery) use ($like, $usernameMatches): void {
                         $innerQuery
-                            ->where('gaijin_id', 'like', $searchTerm)
-                            ->orWhere('discord_id', 'like', $searchTerm);
+                            ->where('gaijin_id', 'like', $like)
+                            ->orWhere('discord_id', 'like', $like);
+
+                        if ($usernameMatches !== []) {
+                            $innerQuery->orWhereIn('gaijin_id', $usernameMatches);
+                        }
                     });
                 })
                 ->orderBy($sortBy, $sortDirection)
@@ -1534,11 +1722,13 @@ class PeckUsersDashboard extends Component
             }
         }
 
-        $unreachable = false;
-
-        $usernames = $usernameGaijinIds === []
-            ? []
-            : app(ResolveUsernames::class)->resolve($usernameGaijinIds, $this->effectiveThunderToken(), $unreachable);
+        if ($allMemberUsernames !== null) {
+            $usernames = $allMemberUsernames;
+        } else {
+            $usernames = $usernameGaijinIds === []
+                ? []
+                : app(ResolveUsernames::class)->resolve($usernameGaijinIds, $this->effectiveThunderToken(), $unreachable);
+        }
 
         $memberStatuses = $this->resolveMemberStatuses($shownUsers, $selectedMember, $unreachable);
 

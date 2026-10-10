@@ -83,6 +83,92 @@ test('members list is searchable by gaijin id and discord id', function () {
         ->assertDontSee((string) $other->gaijin_id);
 });
 
+test('members list is searchable by username', function () {
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 800011]);
+    $other = PeckUser::factory()->create(['gaijin_id' => 800012]);
+
+    Http::fake([
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            '800011' => ['nick' => 'AlphaBird'],
+            '800012' => ['nick' => 'OtherUser'],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->set('search', 'AlphaBird')
+        ->assertSee((string) $member->gaijin_id)
+        ->assertSee('AlphaBird')
+        ->assertDontSee((string) $other->gaijin_id);
+});
+
+test('refresh button is only shown to users with write access', function () {
+    $this->actingAs(User::factory()->create(['level' => 1]));
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->assertSee('Refresh');
+
+    $this->actingAs(User::factory()->create(['level' => 0]));
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->assertDontSee('Refresh');
+});
+
+test('requesting a partial refresh runs once and enforces a global cooldown', function () {
+    $this->withoutDefer();
+
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $this->actingAs(User::factory()->create(['level' => 1]));
+
+    Http::fake([
+        'https://thunder.example/v1/clans/search/*' => Http::response([
+            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        ], 200),
+        'https://thunder.example/v1/clans/123' => Http::response([
+            'members' => [['uid' => '900001']],
+        ], 200),
+    ]);
+
+    $component = Livewire::test(PeckUsersDashboard::class)
+        ->call('requestPartialRefresh')
+        ->assertDispatched('partial-refresh-cooldown-started');
+
+    expect(PeckUser::query()->where('gaijin_id', 900001)->exists())->toBeTrue();
+    expect($component->instance()->partialRefreshCooldownSeconds())->toBeGreaterThan(0);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/search/*' => Http::response([
+            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        ], 200),
+        'https://thunder.example/v1/clans/123' => Http::response([
+            'members' => [['uid' => '900002']],
+        ], 200),
+    ]);
+
+    $component->call('requestPartialRefresh');
+
+    Http::assertNotSent(function ($request): bool {
+        return str_contains($request->url(), '/v1/clans/');
+    });
+});
+
+test('users without write access cannot request a partial refresh', function () {
+    $this->actingAs(User::factory()->create(['level' => 0]));
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('requestPartialRefresh')
+        ->assertForbidden();
+});
+
 test('members list derives member, applicant and ex_member status from the clan endpoint', function () {
     config()->set('peck.squadron_id', '1061551');
     config()->set('peck.thunderapi_server.email', 'server@example.com');
@@ -107,6 +193,41 @@ test('members list derives member, applicant and ex_member status from the clan 
         ->set('search', (string) $member->gaijin_id)
         ->assertSee('member')
         ->assertDontSee('ex_member');
+});
+
+test('members list re-authenticates the server token when the clan endpoint rejects it', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'stale-server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 802300]);
+    $applicant = PeckUser::factory()->create(['gaijin_id' => 802301]);
+    $exMember = PeckUser::factory()->create(['gaijin_id' => 802302]);
+
+    Http::fake([
+        'https://thunder.example/v1/login' => Http::response([
+            'status' => 'OK',
+            'token' => 'fresh-server-token',
+            'user_id' => 424242,
+        ], 200),
+        'https://thunder.example/v1/clans/1061551' => Http::sequence()
+            ->push([], 401)
+            ->push([
+                'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+                'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
+            ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->assertSee('applicant')
+        ->assertSee('ex_member')
+        ->set('search', (string) $member->gaijin_id)
+        ->assertSee('member')
+        ->assertDontSee('ex_member');
+
+    expect(ThunderApiServerToken::query()->first()->token)->toBe('fresh-server-token');
 });
 
 test('non-admin users can open the member modal but not edit or manage', function () {
@@ -459,4 +580,35 @@ test('shows an error popup when thunderapi is unreachable during username resolu
         ->call('dismissThunderApiError')
         ->assertSet('thunderApiError', false)
         ->assertDontSee('An error occurred with ThunderAPI');
+});
+
+test('unverified admins are blocked from editing with a verification popup', function () {
+    $user = User::factory()->unverified()->create(['level' => 1]);
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'admin-token',
+    ]);
+
+    $this->actingAs($user);
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801400]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Edit')
+        ->call('enterMemberEditMode')
+        ->assertSet('showVerificationRequiredModal', true)
+        ->assertSet('memberEditMode', false);
+});
+
+test('unverified users can browse the members dashboard read-only', function () {
+    $user = User::factory()->unverified()->create();
+    $this->actingAs($user);
+
+    $this->get(route('dashboard'))->assertOk();
 });

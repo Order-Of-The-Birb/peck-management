@@ -9,7 +9,7 @@ class StoreApiUserRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->level >= 1;
+        return $this->user()?->canWrite() ?? false;
     }
 
     /**

@@ -399,3 +399,23 @@ test('api users update updates discord id and timezone', function () {
     expect($targetUser->discord_id)->toBe(887766554433221100)
         ->and($targetUser->tz)->toBe(3);
 });
+
+test('api users store is forbidden for unverified api key users', function () {
+    $admin = User::query()->create([
+        'name' => 'API Unverified Admin',
+        'email' => 'api-unverified-admin@example.com',
+        'password' => 'password',
+    ]);
+
+    $admin->forceFill([
+        'email_verified_at' => null,
+        'level' => 1,
+    ])->save();
+
+    $apiToken = ApiKey::issueForOwner($admin->id);
+
+    $this->postJson('/api/v1/users', [
+        'token' => $apiToken,
+        'gaijin_id' => 820004,
+    ])->assertForbidden();
+});

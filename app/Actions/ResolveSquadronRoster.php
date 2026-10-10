@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Models\ThunderApiServerToken;
 use App\Models\ThunderApiToken;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
@@ -53,13 +54,9 @@ class ResolveSquadronRoster
             return $this->emptyRoster();
         }
 
-        try {
-            $clan = $this->thunderApi->getClan($token, $clanId);
-        } catch (ThunderApiUnreachableException) {
-            $unreachable = true;
+        $clan = $this->fetchClan($token, $clanId, $unreachable);
 
-            return $this->emptyRoster();
-        } catch (Throwable) {
+        if ($clan === null) {
             return $this->emptyRoster();
         }
 
@@ -72,6 +69,64 @@ class ResolveSquadronRoster
         Cache::put($cacheKey, $roster, now()->addSeconds($this->cacheSeconds()));
 
         return $roster;
+    }
+
+    /**
+     * Fetch the clan data, re-authenticating once when the token was rejected.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function fetchClan(string $token, string $clanId, bool &$unreachable): ?array
+    {
+        try {
+            return $this->thunderApi->getClan($token, $clanId);
+        } catch (ThunderApiUnauthorizedException) {
+            $this->expireToken($token);
+
+            try {
+                $freshToken = $this->resolveToken();
+            } catch (ThunderApiUnreachableException) {
+                $unreachable = true;
+
+                return null;
+            } catch (Throwable) {
+                return null;
+            }
+
+            if ($freshToken === null || $freshToken === $token) {
+                return null;
+            }
+
+            try {
+                return $this->thunderApi->getClan($freshToken, $clanId);
+            } catch (ThunderApiUnreachableException) {
+                $unreachable = true;
+
+                return null;
+            } catch (Throwable) {
+                return null;
+            }
+        } catch (ThunderApiUnreachableException) {
+            $unreachable = true;
+
+            return null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Expire the stored copy of a rejected token so it gets re-authenticated.
+     */
+    protected function expireToken(string $token): void
+    {
+        ThunderApiServerToken::query()
+            ->where('token', $token)
+            ->update(['expires_at' => now()->subSecond()->timestamp]);
+
+        ThunderApiToken::query()
+            ->where('token', $token)
+            ->update(['expires_at' => now()->subSecond()->timestamp]);
     }
 
     /**
