@@ -25,6 +25,36 @@ test('admin settings page is displayed for admins', function () {
     $this->get(route('admin.edit'))->assertOk();
 });
 
+test('admin settings page is forbidden for users without supervisor access', function () {
+    $viewer = User::query()->create([
+        'name' => 'Viewer User',
+        'email' => 'viewer-forbidden@example.com',
+        'password' => 'password',
+    ]);
+
+    $viewer->forceFill([
+        'email_verified_at' => now(),
+        'level' => 0,
+    ])->save();
+
+    $writer = User::query()->create([
+        'name' => 'Writer User',
+        'email' => 'writer-forbidden@example.com',
+        'password' => 'password',
+    ]);
+
+    $writer->forceFill([
+        'email_verified_at' => now(),
+        'level' => 1,
+    ])->save();
+
+    $this->actingAs($viewer);
+    $this->get(route('admin.edit'))->assertForbidden();
+
+    $this->actingAs($writer);
+    $this->get(route('admin.edit'))->assertForbidden();
+});
+
 test('changing the selected user updates the selected user level', function () {
     $admin = User::query()->create([
         'name' => 'Admin User',
@@ -291,7 +321,7 @@ test('admin can delete a war thunder user without affecting laravel auth users',
     expect(User::query()->find($unrelatedAuthUser->id))->not->toBeNull();
 });
 
-test('non-admin users cannot trigger war thunder user deletion from admin settings component', function () {
+test('non-admin users cannot access the admin settings component', function () {
     $viewer = User::query()->create([
         'name' => 'Viewer Delete Guard',
         'email' => 'viewer-delete-guard@example.com',
@@ -310,8 +340,9 @@ test('non-admin users cannot trigger war thunder user deletion from admin settin
     $this->actingAs($viewer);
 
     Livewire::test('pages::settings.admin')
-        ->call('openDeletePeckUserModal', $targetPeckUser->gaijin_id)
         ->assertForbidden();
+
+    expect(PeckUser::query()->find($targetPeckUser->gaijin_id))->not->toBeNull();
 });
 
 test('delete user action reports a graceful error when selected user is already gone', function () {

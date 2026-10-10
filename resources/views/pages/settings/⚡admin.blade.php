@@ -94,15 +94,14 @@ new #[Title('Administration settings')] class extends Component
             abort(403);
         }
 
-        $this->hydrateApiKeyState();
+        abort_unless($this->canManageUserLevels(), 403);
 
-        if ($this->canManageUserLevels()) {
-            $this->initializeSelectedManagedUser();
-        }
+        $this->hydrateApiKeyState();
+        $this->initializeSelectedManagedUser();
 
         $this->squadronLookupSearch = (string) config('peck.squadron_name');
 
-        if ($this->canManageUserLevels() && ! $this->squadronIdConfigured && $this->thunderLoggedIn) {
+        if (! $this->squadronIdConfigured && $this->thunderLoggedIn) {
             $this->performSquadronSearch();
         }
     }
