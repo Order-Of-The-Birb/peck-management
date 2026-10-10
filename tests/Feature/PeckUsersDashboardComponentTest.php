@@ -331,6 +331,28 @@ test('admins can edit member fields and save changes', function () {
         ->and($member->sqb_part)->toBeTrue();
 });
 
+test('admins can edit when the server thunderapi account is configured', function () {
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create([
+        'gaijin_id' => 800201,
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Edit')
+        ->assertSee('Manage');
+});
+
 test('cancelling an edit discards changes made this session', function () {
     actingThunderAdmin('Commander');
 

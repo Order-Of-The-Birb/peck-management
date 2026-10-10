@@ -405,14 +405,14 @@ class PeckUsersDashboard extends Component
 
     protected function resolveThunderRole(): ?string
     {
-        $token = $this->effectiveThunderToken();
+        $token = $this->resolveSquadronToken();
 
         if ($token === null) {
             return null;
         }
 
         try {
-            $self = app(ThunderApi::class)->getSelf($token);
+            $self = app(ThunderApi::class)->getSelf($token->token);
         } catch (Throwable) {
             return null;
         }
