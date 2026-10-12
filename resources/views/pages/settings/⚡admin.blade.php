@@ -2,12 +2,15 @@
 
 use App\Actions\RefreshPeckDB;
 use App\Actions\ResolveUsernames;
+use App\Actions\ServerThunderApi;
 use App\Actions\ThunderApi;
 use App\Actions\ThunderApiException;
 use App\Actions\ThunderApiUnauthorizedException;
+use App\Actions\ThunderApiUnreachableException;
 use App\Actions\UpdateEnvironmentFile;
 use App\Models\ApiKey;
 use App\Models\PeckUser;
+use App\Models\ThunderApiServerToken;
 use App\Models\ThunderApiToken;
 use App\Models\User;
 use Illuminate\Support\Collection;
@@ -101,7 +104,7 @@ new #[Title('Administration settings')] class extends Component
 
         $this->squadronLookupSearch = (string) config('peck.squadron_name');
 
-        if (! $this->squadronIdConfigured && $this->thunderLoggedIn) {
+        if (! $this->squadronIdConfigured && $this->squadronLookupAvailable) {
             $this->performSquadronSearch();
         }
     }
@@ -568,24 +571,28 @@ new #[Title('Administration settings')] class extends Component
     }
 
     #[Computed]
-    public function thunderLoggedIn(): bool
+    public function squadronLookupAvailable(): bool
     {
         $token = ThunderApiToken::query()->find(Auth::id());
 
-        return $token instanceof ThunderApiToken && ! $token->isExpired();
+        if ($token instanceof ThunderApiToken && ! $token->isExpired()) {
+            return true;
+        }
+
+        return app(ServerThunderApi::class)->isConfigured();
     }
 
     #[Computed]
     public function squadronLookupBlocked(): bool
     {
-        return ! $this->thunderLoggedIn || $this->squadronLookupFailed;
+        return ! $this->squadronLookupAvailable || $this->squadronLookupFailed;
     }
 
     #[Computed]
     public function squadronLookupBlockedMessage(): string
     {
-        if (! $this->thunderLoggedIn) {
-            return __('This card is only available after connecting your ThunderAPI account on your profile.');
+        if (! $this->squadronLookupAvailable) {
+            return $this->squadronLookupUnavailableMessage();
         }
 
         return $this->squadronLookupErrorMessage !== ''
@@ -602,33 +609,10 @@ new #[Title('Administration settings')] class extends Component
     {
         abort_unless($this->canManageUserLevels(), 403);
 
-        if (! $this->thunderLoggedIn) {
-            $this->squadronLookupResults = [];
-            $this->squadronLookupSearched = false;
-            $this->squadronLookupFailed = false;
-            $this->squadronLookupErrorMessage = '';
-
-            return;
-        }
-
         $query = trim($this->squadronLookupSearch);
 
         if ($query === '') {
-            $this->squadronLookupResults = [];
-            $this->squadronLookupSearched = false;
-            $this->squadronLookupFailed = false;
-            $this->squadronLookupErrorMessage = '';
-
-            return;
-        }
-
-        $token = ThunderApiToken::query()->find(Auth::id());
-
-        if (! $token instanceof ThunderApiToken || $token->isExpired()) {
-            $this->squadronLookupResults = [];
-            $this->squadronLookupSearched = false;
-            $this->squadronLookupFailed = false;
-            $this->squadronLookupErrorMessage = '';
+            $this->resetSquadronLookup();
 
             return;
         }
@@ -638,39 +622,143 @@ new #[Title('Administration settings')] class extends Component
         $this->squadronLookupErrorMessage = '';
 
         try {
-            $results = app(ThunderApi::class)->searchClans($token->token, $query);
-        } catch (ThunderApiUnauthorizedException $exception) {
-            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
-
-            $this->squadronLookupResults = [];
-            $this->squadronLookupSearched = false;
-            $this->squadronLookupFailed = true;
-            $this->squadronLookupErrorMessage = $exception->getMessage();
-            $this->squadronLookupLoading = false;
+            $token = $this->resolveSquadronLookupToken();
+        } catch (ThunderApiUnreachableException $exception) {
+            $this->failSquadronLookup($exception->getMessage());
 
             return;
-        } catch (ThunderApiException $exception) {
-            $this->squadronLookupResults = [];
-            $this->squadronLookupSearched = false;
-            $this->squadronLookupFailed = true;
-            $this->squadronLookupErrorMessage = $exception->getMessage();
-            $this->squadronLookupLoading = false;
+        }
+
+        if ($token === null) {
+            $this->failSquadronLookup($this->squadronLookupUnavailableMessage());
 
             return;
-        } catch (Throwable $throwable) {
-            report($throwable);
+        }
 
-            $this->squadronLookupResults = [];
-            $this->squadronLookupSearched = false;
-            $this->squadronLookupFailed = true;
-            $this->squadronLookupErrorMessage = __('ThunderAPI could not be reached.');
-            $this->squadronLookupLoading = false;
+        $results = $this->searchSquadrons($token, $query);
 
+        if ($results === null) {
             return;
         }
 
         $this->squadronLookupResults = $this->normalizeSquadronLookupResults($results);
         $this->squadronLookupSearched = true;
+        $this->squadronLookupLoading = false;
+    }
+
+    /**
+     * Resolve the token used for squadron lookups: the authenticated user's
+     * own ThunderAPI token first, then the server-wide login from the
+     * environment, then an error.
+     *
+     * @throws ThunderApiUnreachableException
+     */
+    protected function resolveSquadronLookupToken(): ?string
+    {
+        $token = ThunderApiToken::query()->find(Auth::id());
+
+        if ($token instanceof ThunderApiToken && ! $token->isExpired()) {
+            return $token->token;
+        }
+
+        $server = app(ServerThunderApi::class);
+
+        if (! $server->isConfigured()) {
+            return null;
+        }
+
+        try {
+            return $server->token();
+        } catch (ThunderApiUnreachableException) {
+            throw new ThunderApiUnreachableException('Unable to reach ThunderAPI. Please try again later.');
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Search squadrons with the given token, falling back to the next
+     * available token source when the token is rejected.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    protected function searchSquadrons(string $token, string $query): ?array
+    {
+        try {
+            return app(ThunderApi::class)->searchClans($token, $query);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $this->expireSquadronLookupToken($token);
+
+            try {
+                $fallbackToken = $this->resolveSquadronLookupToken();
+            } catch (ThunderApiUnreachableException $unreachableException) {
+                $this->failSquadronLookup($unreachableException->getMessage());
+
+                return null;
+            }
+
+            if ($fallbackToken === null || $fallbackToken === $token) {
+                $this->failSquadronLookup($exception->getMessage());
+
+                return null;
+            }
+
+            try {
+                return app(ThunderApi::class)->searchClans($fallbackToken, $query);
+            } catch (ThunderApiUnauthorizedException $fallbackException) {
+                $this->expireSquadronLookupToken($fallbackToken);
+                $this->failSquadronLookup($fallbackException->getMessage());
+            } catch (ThunderApiException $fallbackException) {
+                $this->failSquadronLookup($fallbackException->getMessage());
+            } catch (Throwable $throwable) {
+                report($throwable);
+                $this->failSquadronLookup(__('ThunderAPI could not be reached.'));
+            }
+
+            return null;
+        } catch (ThunderApiException $exception) {
+            $this->failSquadronLookup($exception->getMessage());
+
+            return null;
+        } catch (Throwable $throwable) {
+            report($throwable);
+            $this->failSquadronLookup(__('ThunderAPI could not be reached.'));
+
+            return null;
+        }
+    }
+
+    protected function expireSquadronLookupToken(string $token): void
+    {
+        ThunderApiServerToken::query()
+            ->where('token', $token)
+            ->update(['expires_at' => now()->subSecond()->timestamp]);
+
+        ThunderApiToken::query()
+            ->where('token', $token)
+            ->update(['expires_at' => now()->subSecond()->timestamp]);
+    }
+
+    protected function squadronLookupUnavailableMessage(): string
+    {
+        return __('This card is only available after connecting your ThunderAPI account on your profile or configuring a server-wide ThunderAPI login.');
+    }
+
+    protected function resetSquadronLookup(): void
+    {
+        $this->squadronLookupResults = [];
+        $this->squadronLookupSearched = false;
+        $this->squadronLookupFailed = false;
+        $this->squadronLookupErrorMessage = '';
+        $this->squadronLookupLoading = false;
+    }
+
+    protected function failSquadronLookup(string $message): void
+    {
+        $this->squadronLookupResults = [];
+        $this->squadronLookupSearched = false;
+        $this->squadronLookupFailed = true;
+        $this->squadronLookupErrorMessage = $message;
         $this->squadronLookupLoading = false;
     }
 

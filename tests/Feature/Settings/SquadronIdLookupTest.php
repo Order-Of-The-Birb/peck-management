@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\UpdateEnvironmentFile;
+use App\Models\ThunderApiServerToken;
 use App\Models\ThunderApiToken;
 use App\Models\User;
 use Illuminate\Http\Client\ConnectionException;
@@ -20,6 +21,11 @@ function createAdminForSquadronLookup(): User
 
     return $user;
 }
+
+beforeEach(function () {
+    config()->set('peck.thunderapi_server.email', null);
+    config()->set('peck.thunderapi_server.password', null);
+});
 
 test('squadron id lookup card is hidden once the squadron id is configured', function () {
     config()->set('peck.squadron_id', '123');
@@ -191,4 +197,121 @@ test('confirming a squadron selection saves the squadron id', function () {
         ->assertDispatched('squadron-id-configured');
 
     expect(config('peck.squadron_id'))->toBe('123');
+});
+
+test('squadron id lookup falls back to the server-wide login when the admin has no personal token', function () {
+    config()->set('peck.squadron_id', null);
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $this->actingAs(createAdminForSquadronLookup());
+
+    Http::fake([
+        'https://thunder.example/v1/clans/search/*' => Http::response([
+            ['_id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
+        ], 200),
+    ]);
+
+    Livewire::test('pages::settings.admin')
+        ->assertSee('Squadron ID Lookup')
+        ->assertDontSee('only available after connecting your ThunderAPI account')
+        ->assertSeeText('123 PECK Order Of The Birb');
+
+    Http::assertSent(function ($request): bool {
+        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search/')
+            && $request->hasHeader('Authorization', 'Bearer server-token');
+    });
+});
+
+test('squadron id lookup prefers the admin personal token over the server-wide login', function () {
+    config()->set('peck.squadron_id', null);
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $admin = createAdminForSquadronLookup();
+
+    $this->actingAs($admin);
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $admin->id,
+        'token' => 'user-token',
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/search/*' => Http::response([
+            ['_id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
+        ], 200),
+    ]);
+
+    Livewire::test('pages::settings.admin')
+        ->assertSeeText('123 PECK Order Of The Birb');
+
+    Http::assertSent(function ($request): bool {
+        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search/')
+            && $request->hasHeader('Authorization', 'Bearer user-token');
+    });
+});
+
+test('squadron id lookup falls back to the server-wide login when the personal token is rejected', function () {
+    config()->set('peck.squadron_id', null);
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $admin = createAdminForSquadronLookup();
+
+    $this->actingAs($admin);
+
+    $userToken = ThunderApiToken::factory()->create([
+        'user_id' => $admin->id,
+        'token' => 'stale-user-token',
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/search/*' => function ($request) {
+            if ($request->hasHeader('Authorization', 'Bearer stale-user-token')) {
+                return Http::response(['detail' => 'User not found'], 401);
+            }
+
+            return Http::response([
+                ['_id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
+            ], 200);
+        },
+    ]);
+
+    Livewire::test('pages::settings.admin')
+        ->assertSeeText('123 PECK Order Of The Birb');
+
+    $userToken->refresh();
+
+    expect($userToken->isExpired())->toBeTrue();
+});
+
+test('squadron id lookup reports an error when the server-wide login is unreachable', function () {
+    config()->set('peck.squadron_id', null);
+    config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    $this->actingAs(createAdminForSquadronLookup());
+
+    Http::fake([
+        'https://thunder.example/*' => fn () => throw new ConnectionException('cURL error 7: Failed to connect to server'),
+    ]);
+
+    Livewire::test('pages::settings.admin')
+        ->assertSee('Squadron ID Lookup')
+        ->assertSee('Unable to reach ThunderAPI. Please try again later.');
 });

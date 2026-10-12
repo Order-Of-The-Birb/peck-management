@@ -8,6 +8,11 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
+beforeEach(function () {
+    config()->set('peck.thunderapi_server.email', null);
+    config()->set('peck.thunderapi_server.password', null);
+});
+
 test('admin settings page is displayed for admins', function () {
     $user = User::query()->create([
         'name' => 'Admin User',
