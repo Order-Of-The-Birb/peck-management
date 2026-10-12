@@ -96,18 +96,4 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return (int) $this->level >= 1 && $this->hasVerifiedEmail();
     }
-
-    public function canManageSquadron(): bool
-    {
-        $gaijinId = $this->thunderApiToken()->value('gaijin_id');
-
-        if (! is_numeric($gaijinId)) {
-            return false;
-        }
-
-        return Officer::query()
-            ->where('gaijin_id', (int) $gaijinId)
-            ->whereIn('rank', Officer::RANKS)
-            ->exists();
-    }
 }

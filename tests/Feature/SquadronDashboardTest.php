@@ -1,8 +1,6 @@
 <?php
 
 use App\Livewire\PeckUsersDashboard;
-use App\Models\Officer;
-use App\Models\PeckUser;
 use App\Models\ThunderApiToken;
 use App\Models\User;
 use Carbon\Carbon;
@@ -89,7 +87,7 @@ test('the squadron id block takes precedence over the thunderapi block', functio
         ->assertDontSee('ThunderAPI connection required');
 });
 
-test('squadron applications and management pages share the squadron block', function () {
+test('squadron applications share the squadron block', function () {
     $user = User::factory()->create();
 
     Http::fake();
@@ -97,9 +95,6 @@ test('squadron applications and management pages share the squadron block', func
     actingAs($user);
 
     Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
-        ->assertSee('ThunderAPI connection required');
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_management'])
         ->assertSee('ThunderAPI connection required');
 });
 
@@ -299,114 +294,6 @@ test('squadron logs refresh a stale thunderapi token before loading', function (
     Http::assertSent(function ($request): bool {
         return $request->url() === 'https://thunder.example/v1/refresh-token';
     });
-});
-
-test('squadron management page is blurred for users without clearance', function () {
-    $user = User::factory()->create();
-
-    ThunderApiToken::factory()->create([
-        'user_id' => $user->id,
-        'token' => 'logs-token',
-    ]);
-
-    Http::fake();
-
-    actingAs($user);
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_management'])
-        ->assertSee('Insufficient clearance')
-        ->assertSee('do not have a high enough clearance');
-});
-
-test('squadron management page is blurred for retired officers', function () {
-    $user = User::factory()->create();
-
-    ThunderApiToken::factory()->create([
-        'user_id' => $user->id,
-        'token' => 'logs-token',
-        'gaijin_id' => 222,
-    ]);
-
-    PeckUser::factory()->create(['gaijin_id' => 222]);
-
-    Officer::query()->create([
-        'gaijin_id' => 222,
-        'rank' => null,
-    ]);
-
-    Http::fake();
-
-    actingAs($user);
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_management'])
-        ->assertSee('Insufficient clearance');
-});
-
-test('squadron management page renders for non-retired officers', function () {
-    $user = User::factory()->create();
-
-    ThunderApiToken::factory()->create([
-        'user_id' => $user->id,
-        'token' => 'logs-token',
-        'gaijin_id' => 222,
-    ]);
-
-    PeckUser::factory()->create(['gaijin_id' => 222]);
-
-    Officer::query()->create([
-        'gaijin_id' => 222,
-        'rank' => Officer::RANK_OFFICER,
-    ]);
-
-    Http::fake();
-
-    actingAs($user);
-
-    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_management'])
-        ->assertDontSee('Insufficient clearance')
-        ->assertSee('Squadron management will appear here.');
-});
-
-test('squadron management sidebar item is hidden for unauthorized users', function () {
-    $user = User::factory()->create();
-
-    ThunderApiToken::factory()->create([
-        'user_id' => $user->id,
-        'token' => 'logs-token',
-    ]);
-
-    Http::fake();
-
-    actingAs($user);
-
-    $this->get(route('dashboard'))
-        ->assertOk()
-        ->assertDontSee('Management');
-});
-
-test('squadron management sidebar item is shown for authorized officers', function () {
-    $user = User::factory()->create();
-
-    ThunderApiToken::factory()->create([
-        'user_id' => $user->id,
-        'token' => 'logs-token',
-        'gaijin_id' => 222,
-    ]);
-
-    PeckUser::factory()->create(['gaijin_id' => 222]);
-
-    Officer::query()->create([
-        'gaijin_id' => 222,
-        'rank' => Officer::RANK_COMMANDER,
-    ]);
-
-    Http::fake();
-
-    actingAs($user);
-
-    $this->get(route('dashboard'))
-        ->assertOk()
-        ->assertSee('Management');
 });
 
 test('squadron log description and application messages render with the wt-glyphs class', function () {

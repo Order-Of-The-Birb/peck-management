@@ -176,7 +176,7 @@ class PeckUsersDashboard extends Component
 
     public function mount(string $section = 'members'): void
     {
-        if (in_array($section, ['members', 'squadron_logs', 'squadron_applications', 'squadron_management'], true)) {
+        if (in_array($section, ['members', 'squadron_logs', 'squadron_applications'], true)) {
             $this->section = $section;
         }
 
@@ -359,14 +359,9 @@ class PeckUsersDashboard extends Component
         return $this->section === 'squadron_applications';
     }
 
-    public function isSquadronManagementSection(): bool
-    {
-        return $this->section === 'squadron_management';
-    }
-
     public function isSquadronSection(): bool
     {
-        return in_array($this->section, ['squadron_logs', 'squadron_applications', 'squadron_management'], true);
+        return in_array($this->section, ['squadron_logs', 'squadron_applications'], true);
     }
 
     /**
@@ -1092,23 +1087,12 @@ class PeckUsersDashboard extends Component
             return $this->thunderPromptDismissed ? null : 'thunder';
         }
 
-        if ($this->section === 'squadron_management' && ! $this->squadronManagementAuthorized()) {
-            return 'clearance';
-        }
-
         return null;
     }
 
     public function dismissThunderPrompt(): void
     {
         $this->thunderPromptDismissed = true;
-    }
-
-    public function squadronManagementAuthorized(): bool
-    {
-        $user = auth()->user();
-
-        return $user instanceof User && $user->canManageSquadron();
     }
 
     public function loadMoreSquadronLogs(): void

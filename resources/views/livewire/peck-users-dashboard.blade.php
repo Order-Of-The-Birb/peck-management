@@ -207,13 +207,6 @@
                         </div>
                     </div>
                 </div>
-            @elseif ($squadronBlockReason === 'clearance')
-                <div class="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/40 p-6 backdrop-blur-sm">
-                    <div class="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 text-center shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                        <flux:heading size="lg">{{ __('Insufficient clearance') }}</flux:heading>
-                        <flux:text class="mt-2">{{ __('You do not have a high enough clearance to access this page.') }}</flux:text>
-                    </div>
-                </div>
             @else
                 @if ($this->isSquadronLogsSection())
                     <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
@@ -407,14 +400,6 @@
                     </flux:modal>
                 @endif
 
-                @if ($this->isSquadronManagementSection())
-                    <section class="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700 md:p-6">
-                        <div>
-                            <flux:heading size="xl">{{ __('Management') }}</flux:heading>
-                            <flux:text>{{ __('Squadron management will appear here.') }}</flux:text>
-                        </div>
-                    </section>
-                @endif
             @endif
         @endif
 

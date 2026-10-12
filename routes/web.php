@@ -30,10 +30,4 @@ Route::get('/squadron/applications', function () {
     ]);
 })->middleware(['auth'])->name('dashboard.squadron.applications');
 
-Route::get('/squadron/management', function () {
-    return view('dashboard', [
-        'dashboardSection' => 'squadron_management',
-    ]);
-})->middleware(['auth'])->name('dashboard.squadron.management');
-
 require __DIR__.'/settings.php';

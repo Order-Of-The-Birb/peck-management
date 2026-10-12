@@ -51,14 +51,3 @@ test('authenticated users can visit the squadron applications section', function
     $response = $this->get(route('dashboard.squadron.applications'));
     $response->assertOk();
 });
-
-test('authenticated users can visit the squadron management section', function () {
-    $user = User::factory()->create([
-        'name' => 'Squadron Management User',
-        'email' => 'squadron-management-user@example.com',
-    ]);
-    $this->actingAs($user);
-
-    $response = $this->get(route('dashboard.squadron.management'));
-    $response->assertOk();
-});
