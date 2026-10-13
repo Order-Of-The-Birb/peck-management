@@ -170,6 +170,13 @@ class PeckUsersDashboard extends Component
 
     private bool $thunderRoleResolved = false;
 
+    /**
+     * @var array<string, mixed>|null
+     */
+    private ?array $resolvedThunderSelf = null;
+
+    private bool $thunderSelfResolved = false;
+
     private ?string $resolvedEffectiveThunderToken = null;
 
     private bool $effectiveThunderTokenResolved = false;
@@ -401,21 +408,55 @@ class PeckUsersDashboard extends Component
 
     protected function resolveThunderRole(): ?string
     {
-        $token = $this->resolveSquadronToken();
+        $self = $this->thunderSelf();
 
-        if ($token === null) {
-            return null;
-        }
-
-        try {
-            $self = app(ThunderApi::class)->getSelf($token->token);
-        } catch (Throwable) {
+        if ($self === null) {
             return null;
         }
 
         $role = $self['squadron']['user']['role']['name'] ?? null;
 
         return is_string($role) && $role !== '' ? $role : null;
+    }
+
+    /**
+     * Fetch the authenticated user's own ThunderAPI profile, memoized per request.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function thunderSelf(): ?array
+    {
+        if ($this->thunderSelfResolved) {
+            return $this->resolvedThunderSelf;
+        }
+
+        $this->thunderSelfResolved = true;
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null) {
+            return $this->resolvedThunderSelf = null;
+        }
+
+        try {
+            $this->resolvedThunderSelf = app(ThunderApi::class)->getSelf($token->token);
+        } catch (Throwable) {
+            $this->resolvedThunderSelf = null;
+        }
+
+        return $this->resolvedThunderSelf;
+    }
+
+    /**
+     * Resolve the authenticated user's own Gaijin ID.
+     */
+    public function thunderUserId(): ?int
+    {
+        $self = $this->thunderSelf();
+
+        $userId = $self['userId'] ?? $self['userid'] ?? null;
+
+        return is_numeric($userId) && (int) $userId > 0 ? (int) $userId : null;
     }
 
     protected function effectiveThunderToken(): ?string
@@ -484,9 +525,57 @@ class PeckUsersDashboard extends Component
         return $this->isAdminRole($this->thunderRole());
     }
 
+    /**
+     * Whether the selected member is still in the squadron, so the Manage
+     * tab remains relevant.
+     */
+    public function canManageSelectedMember(): bool
+    {
+        return $this->canEdit() && $this->selectedMemberStatus() !== 'ex_member';
+    }
+
+    protected function selectedMemberStatus(): ?string
+    {
+        $selectedMember = $this->selectedMember();
+
+        if ($selectedMember === null) {
+            return null;
+        }
+
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken());
+
+        return $resolver->statusFor($selectedMember->gaijin_id, $roster);
+    }
+
     public function canChangeRoles(): bool
     {
         return in_array($this->thunderRole(), [self::ROLE_DEPUTY, self::ROLE_COMMANDER], true);
+    }
+
+    /**
+     * Whether the current user may change the selected member's role.
+     *
+     * Deputies may change everyone's role except their own and the Commander's;
+     * Commanders may change everyone's role except their own.
+     */
+    public function canChangeRoleFor(?string $memberRole): bool
+    {
+        if (! $this->canChangeRoles()) {
+            return false;
+        }
+
+        $ownGaijinId = $this->thunderUserId();
+
+        if ($ownGaijinId !== null && $this->selectedMemberGaijinId !== null && $ownGaijinId === $this->selectedMemberGaijinId) {
+            return false;
+        }
+
+        if ($this->thunderRole() === self::ROLE_DEPUTY && ($memberRole === null || $memberRole === self::ROLE_COMMANDER)) {
+            return false;
+        }
+
+        return true;
     }
 
     protected function ensureCanEdit(): bool
@@ -580,8 +669,16 @@ class PeckUsersDashboard extends Component
             return;
         }
 
-        if ($tab === 'manage' && ! $this->canEdit()) {
+        if ($tab === 'manage' && ! $this->canManageSelectedMember()) {
             abort(403);
+        }
+
+        if ($tab === 'manage' && $this->manageRole === null) {
+            $role = $this->resolveSelectedMemberRole(fresh: true);
+
+            if (in_array($role, $this->assignableRoles(), true) && $this->canChangeRoleFor($role)) {
+                $this->manageRole = $role;
+            }
         }
 
         $this->memberTab = $tab;
@@ -975,7 +1072,7 @@ class PeckUsersDashboard extends Component
             return;
         }
 
-        $token = $this->effectiveThunderToken();
+        $token = $this->resolveSquadronToken();
 
         if ($token === null) {
             $this->manageActionError = __('Your ThunderAPI token is no longer valid. Please reconnect your account.');
@@ -986,7 +1083,7 @@ class PeckUsersDashboard extends Component
         $this->manageActionError = '';
 
         try {
-            app(ThunderApi::class)->kickMember($token, (string) $gaijinId, $this->kickReason);
+            app(ThunderApi::class)->kickMember($token->token, (string) $gaijinId, $this->kickReason);
         } catch (ThunderApiUnauthorizedException $exception) {
             $this->manageActionError = $exception->getMessage();
 
@@ -1026,7 +1123,11 @@ class PeckUsersDashboard extends Component
             return;
         }
 
-        $token = $this->effectiveThunderToken();
+        if (! $this->canChangeRoleFor($this->resolveSelectedMemberRole(fresh: true))) {
+            abort(403);
+        }
+
+        $token = $this->resolveSquadronToken();
 
         if ($token === null) {
             $this->manageActionError = __('Your ThunderAPI token is no longer valid. Please reconnect your account.');
@@ -1037,7 +1138,7 @@ class PeckUsersDashboard extends Component
         $this->manageActionError = '';
 
         try {
-            app(ThunderApi::class)->changeMemberRole($token, (string) $gaijinId, $role);
+            app(ThunderApi::class)->changeMemberRole($token->token, (string) $gaijinId, $role);
         } catch (ThunderApiUnauthorizedException $exception) {
             $this->manageActionError = $exception->getMessage();
 
@@ -1057,6 +1158,24 @@ class PeckUsersDashboard extends Component
         $this->manageRole = null;
         $this->manageActionError = '';
         $this->dispatch('peck-member-role-changed');
+    }
+
+    /**
+     * Resolve the selected member's squadron role from the roster.
+     */
+    protected function resolveSelectedMemberRole(bool $fresh = false): ?string
+    {
+        $gaijinId = $this->selectedMemberGaijinId;
+
+        if ($gaijinId === null) {
+            return null;
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable, $fresh);
+
+        return $resolver->roleFor($gaijinId, $roster);
     }
 
     public function squadronIdConfigured(): bool
@@ -1737,6 +1856,7 @@ class PeckUsersDashboard extends Component
             ? ($memberJoinDates[$selectedMember->gaijin_id] ?? null)
             : null;
         $memberInitiator = $this->resolveMemberInitiator($selectedMember, $unreachable);
+        $selectedMemberRole = $this->resolveMemberRole($selectedMember, $unreachable);
 
         $this->syncThunderApiErrorState($unreachable);
 
@@ -1780,6 +1900,7 @@ class PeckUsersDashboard extends Component
             'memberJoinDates' => $memberJoinDates,
             'memberJoinDate' => $memberJoinDate,
             'memberInitiator' => $memberInitiator,
+            'selectedMemberRole' => $selectedMemberRole,
             'ownerOptions' => $ownerOptions,
             'contextTypes' => $this->contextTypes(),
             'assignableRoles' => $this->assignableRoles(),
@@ -1986,6 +2107,23 @@ class PeckUsersDashboard extends Component
         }
 
         return $initiator['nickname'];
+    }
+
+    /**
+     * Resolve the selected member's squadron role from the roster.
+     */
+    protected function resolveMemberRole(?PeckUser $selectedMember, bool &$unreachable): ?string
+    {
+        if (! $this->isMembersSection() || $selectedMember === null) {
+            return null;
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        return $resolver->roleFor($selectedMember->gaijin_id, $roster);
     }
 
     protected function nullableString(mixed $value): ?string

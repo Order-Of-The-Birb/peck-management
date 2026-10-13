@@ -137,7 +137,9 @@ test('user can disconnect thunderapi', function () {
     ThunderApiToken::factory()->create(['user_id' => $user->id]);
 
     Livewire::test('pages::settings.profile')
-        ->call('disconnectThunder');
+        ->assertSee('Connected')
+        ->call('disconnectThunder')
+        ->assertSee('Not connected');
 
     expect(ThunderApiToken::query()->exists())->toBeFalse();
 });

@@ -153,6 +153,7 @@
                                             variant="ghost"
                                             size="sm"
                                             wire:click="openMemberModal({{ $peckUser->gaijin_id }})"
+                                            wire:target="openMemberModal({{ $peckUser->gaijin_id }})"
                                             class="px-3! py-1! text-xs"
                                         >
                                             {{ __('View') }}
@@ -415,7 +416,7 @@
                                 'context' => __('Context'),
                                 'manage' => __('Manage'),
                             ] as $tabKey => $tabLabel)
-                                @if ($tabKey !== 'manage' || $this->canEdit())
+                                @if ($tabKey !== 'manage' || $this->canManageSelectedMember())
                                     <button
                                         type="button"
                                         wire:click="selectMemberTab('{{ $tabKey }}')"
@@ -559,6 +560,7 @@
                                                     variant="ghost"
                                                     size="sm"
                                                     wire:click="openContextEntryModal({{ $contextEntry->context_id }})"
+                                                    wire:target="openContextEntryModal({{ $contextEntry->context_id }})"
                                                     class="shrink-0"
                                                 >
                                                     {{ __('View') }}
@@ -660,7 +662,7 @@
                             @endif
                         @endif
 
-                        @if ($memberTab === 'manage' && $this->canEdit())
+                        @if ($memberTab === 'manage' && $this->canManageSelectedMember())
                             <div class="space-y-6">
                                 @if ($manageActionError !== '')
                                     <div class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100" role="alert">
@@ -668,33 +670,34 @@
                                     </div>
                                 @endif
 
-                                <div class="flex flex-wrap items-center gap-3">
-                                    <flux:button type="button" variant="danger" wire:click="openKickConfirmModal">
-                                        {{ __('Kick user') }}
-                                    </flux:button>
+                                @if ($this->canChangeRoleFor($selectedMemberRole))
+                                    <div class="flex flex-wrap items-end gap-3">
+                                        <flux:select wire:model.live="manageRole" :label="__('Change role')" class="min-w-40">
+                                            <option value="">{{ __('Select role') }}</option>
+                                            @foreach ($assignableRoles as $assignableRole)
+                                                <option value="{{ $assignableRole }}">{{ $assignableRole }}</option>
+                                            @endforeach
+                                        </flux:select>
 
-                                    @if ($this->canChangeRoles())
-                                        <div class="flex items-center gap-2">
-                                            <flux:select wire:model="manageRole" :label="__('Change role')" class="min-w-40">
-                                                <option value="">{{ __('Select role') }}</option>
-                                                @foreach ($assignableRoles as $assignableRole)
-                                                    <option value="{{ $assignableRole }}">{{ $assignableRole }}</option>
-                                                @endforeach
-                                            </flux:select>
+                                        <flux:button
+                                            type="button"
+                                            variant="filled"
+                                            wire:click="changeMemberRole"
+                                            wire:loading.attr="disabled"
+                                            wire:target="changeMemberRole"
+                                            :disabled="! $manageRole"
+                                            class="bg-white! text-black! border border-neutral-300! hover:bg-neutral-100!"
+                                        >
+                                            {{ __('Save') }}
+                                        </flux:button>
+                                    </div>
 
-                                            <flux:button
-                                                type="button"
-                                                variant="primary"
-                                                wire:click="changeMemberRole"
-                                                wire:loading.attr="disabled"
-                                                wire:target="changeMemberRole"
-                                                :disabled="! $manageRole"
-                                            >
-                                                {{ __('Apply') }}
-                                            </flux:button>
-                                        </div>
-                                    @endif
-                                </div>
+                                    <hr class="border-neutral-200 dark:border-neutral-700" />
+                                @endif
+
+                                <flux:button type="button" variant="danger" wire:click="openKickConfirmModal">
+                                    {{ __('Kick user') }}
+                                </flux:button>
                             </div>
                         @endif
                     </div>

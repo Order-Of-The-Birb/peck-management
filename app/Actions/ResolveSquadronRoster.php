@@ -9,6 +9,20 @@ use Throwable;
 
 class ResolveSquadronRoster
 {
+    /**
+     * Map raw Gaijin role indexes to their display names.
+     *
+     * @var array<int, string>
+     */
+    private const ROLE_NAMES = [
+        1 => 'Commander',
+        2 => 'Officer',
+        3 => 'Private',
+        4 => 'Unknown',
+        5 => 'Deputy',
+        6 => 'Sergeant',
+    ];
+
     public function __construct(
         private readonly ThunderApi $thunderApi,
         private readonly ServerThunderApi $serverThunderApi,
@@ -21,9 +35,11 @@ class ResolveSquadronRoster
      * When a token is provided it is used directly; otherwise the server-wide
      * login is used, falling back to the authenticated user's own token.
      *
-     * @return array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>}
+     * Pass $fresh as true to bypass the cached roster and fetch a new copy.
+     *
+     * @return array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}
      */
-    public function resolve(?string $token = null, ?string $clanId = null, ?bool &$unreachable = null): array
+    public function resolve(?string $token = null, ?string $clanId = null, ?bool &$unreachable = null, bool $fresh = false): array
     {
         $unreachable = false;
 
@@ -34,10 +50,13 @@ class ResolveSquadronRoster
         }
 
         $cacheKey = 'peck:thunderapi:roster:'.$clanId;
-        $cached = Cache::get($cacheKey);
 
-        if (is_array($cached) && isset($cached['resolved'])) {
-            return $cached;
+        if (! $fresh) {
+            $cached = Cache::get($cacheKey);
+
+            if (is_array($cached) && isset($cached['resolved'])) {
+                return $cached;
+            }
         }
 
         try {
@@ -66,6 +85,7 @@ class ResolveSquadronRoster
             'applicant_ids' => $this->extractIds($clan['candidates'] ?? null),
             'member_join_dates' => $this->extractJoinDates($clan['members'] ?? null),
             'member_initiators' => $this->extractInitiators($clan['members'] ?? null),
+            'member_roles' => $this->extractMemberRoles($clan['members'] ?? null),
         ];
 
         Cache::put($cacheKey, $roster, now()->addSeconds($this->cacheSeconds()));
@@ -132,7 +152,7 @@ class ResolveSquadronRoster
     }
 
     /**
-     * @param  array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>}  $roster
+     * @param  array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}  $roster
      */
     public function statusFor(int $gaijinId, array $roster): ?string
     {
@@ -154,7 +174,7 @@ class ResolveSquadronRoster
     /**
      * Return the join date (unix timestamp) for a member, if known.
      *
-     * @param  array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>}  $roster
+     * @param  array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}  $roster
      */
     public function joinDateFor(int $gaijinId, array $roster): ?int
     {
@@ -170,7 +190,7 @@ class ResolveSquadronRoster
     /**
      * Return the initiator (recruiter) for a member, if known.
      *
-     * @param  array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>}  $roster
+     * @param  array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}  $roster
      * @return array{initiator:int,nickname:?string}|null
      */
     public function initiatorFor(int $gaijinId, array $roster): ?array
@@ -185,7 +205,23 @@ class ResolveSquadronRoster
     }
 
     /**
-     * @return array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>}
+     * Return the squadron role for a member, if known.
+     *
+     * @param  array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}  $roster
+     */
+    public function roleFor(int $gaijinId, array $roster): ?string
+    {
+        if (! ($roster['resolved'] ?? false)) {
+            return null;
+        }
+
+        $roles = $roster['member_roles'] ?? [];
+
+        return $roles[$gaijinId] ?? null;
+    }
+
+    /**
+     * @return array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}
      */
     protected function emptyRoster(): array
     {
@@ -195,6 +231,7 @@ class ResolveSquadronRoster
             'applicant_ids' => [],
             'member_join_dates' => [],
             'member_initiators' => [],
+            'member_roles' => [],
         ];
     }
 
@@ -319,5 +356,42 @@ class ResolveSquadronRoster
         }
 
         return $initiators;
+    }
+
+    /**
+     * Extract member roles (Gaijin ID => role name) from the clan payload.
+     *
+     * @return array<int, string>
+     */
+    protected function extractMemberRoles(mixed $entries): array
+    {
+        if (! is_array($entries)) {
+            return [];
+        }
+
+        $memberEntries = isset($entries['uid']) ? [$entries] : $entries;
+
+        $roles = [];
+
+        foreach ($memberEntries as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+
+            $uid = $entry['uid'] ?? null;
+            $role = $entry['role'] ?? null;
+
+            if (! is_numeric($uid) || (int) $uid <= 0 || ! is_numeric($role)) {
+                continue;
+            }
+
+            $name = self::ROLE_NAMES[(int) $role] ?? null;
+
+            if ($name !== null) {
+                $roles[(int) $uid] = $name;
+            }
+        }
+
+        return $roles;
     }
 }

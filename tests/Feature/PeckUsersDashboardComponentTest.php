@@ -717,12 +717,102 @@ test('commander can change a member role', function () {
         ->call('openMemberModal', $member->gaijin_id)
         ->call('selectMemberTab', 'manage')
         ->assertSee('Change role')
+        ->assertSeeHtml('disabled="disabled"')
         ->set('manageRole', 'Officer')
+        ->assertDontSeeHtml('disabled="disabled"')
         ->call('changeMemberRole')
         ->assertDispatched('peck-member-role-changed');
 
     Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/clans/role/'.$member->gaijin_id)
         && str_contains($request->url(), 'role=Officer'));
+});
+
+test('change role dropdown defaults to the member current role', function () {
+    actingThunderAdmin('Commander');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => '801170', 'nick' => 'OfficerBird', 'role' => 2, 'date' => 1],
+            ],
+        ], 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801170]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSet('manageRole', 'Officer');
+});
+
+test('change role dropdown uses a fresh role instead of the stale roster cache', function () {
+    actingThunderAdmin('Commander');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801171]);
+
+    Cache::put('peck:thunderapi:roster:1061551', [
+        'resolved' => true,
+        'member_ids' => [$member->gaijin_id],
+        'applicant_ids' => [],
+        'member_join_dates' => [$member->gaijin_id => 1],
+        'member_initiators' => [],
+        'member_roles' => [$member->gaijin_id => 'Private'],
+    ], 300);
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => (string) $member->gaijin_id, 'nick' => 'SargeBird', 'role' => 6, 'date' => 1],
+            ],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSet('manageRole', 'Sergeant');
+});
+
+test('role change uses the commander own token when the server account is configured', function () {
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    actingThunderAdmin('Commander');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => '801180', 'nick' => 'PrivateBird', 'role' => 3, 'date' => 1],
+            ],
+        ], 200),
+        'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801180]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->set('manageRole', 'Officer')
+        ->call('changeMemberRole')
+        ->assertDispatched('peck-member-role-changed');
+
+    Http::assertSent(function ($request) use ($member): bool {
+        return str_contains($request->url(), '/v1/clans/role/'.$member->gaijin_id)
+            && in_array('Bearer admin-token', $request->header('Authorization'), true);
+    });
 });
 
 test('officers can kick but cannot change roles', function () {
@@ -739,6 +829,148 @@ test('officers can kick but cannot change roles', function () {
         ->call('selectMemberTab', 'manage')
         ->assertSee('Kick user')
         ->assertDontSee('Change role');
+});
+
+test('deputy can change a member role with the save button above the kick button', function () {
+    actingThunderAdmin('Deputy');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Deputy'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => '801150', 'nick' => 'PrivateBird', 'role' => 3, 'date' => 1],
+            ],
+        ], 200),
+        'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
+    ]);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 801150]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSeeInOrder(['Change role', 'Kick user'])
+        ->assertSee('Save')
+        ->assertSeeHtml('<hr')
+        ->set('manageRole', 'Officer')
+        ->call('changeMemberRole')
+        ->assertDispatched('peck-member-role-changed');
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), '/v1/clans/role/'.$member->gaijin_id)
+        && str_contains($request->url(), 'role=Officer'));
+});
+
+test('deputy cannot change the commander role and the option is hidden', function () {
+    actingThunderAdmin('Deputy');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Deputy'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => '801151', 'nick' => 'BossBird', 'role' => 1, 'date' => 1],
+            ],
+        ], 200),
+        'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
+    ]);
+
+    $commander = PeckUser::factory()->create(['gaijin_id' => 801151]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $commander->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSee('Kick user')
+        ->assertDontSee('Change role')
+        ->set('manageRole', 'Officer')
+        ->call('changeMemberRole')
+        ->assertForbidden();
+
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/v1/clans/role/'));
+});
+
+test('deputy cannot change their own role', function () {
+    actingThunderAdmin('Deputy');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Deputy'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => '424242', 'nick' => 'TestDeputy', 'role' => 5, 'date' => 1],
+            ],
+        ], 200),
+        'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
+    ]);
+
+    $self = PeckUser::factory()->create(['gaijin_id' => 424242]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $self->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSee('Kick user')
+        ->assertDontSee('Change role')
+        ->set('manageRole', 'Officer')
+        ->call('changeMemberRole')
+        ->assertForbidden();
+
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/v1/clans/role/'));
+});
+
+test('commander cannot change their own role', function () {
+    actingThunderAdmin('Commander');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => '424242', 'nick' => 'TestAdmin', 'role' => 1, 'date' => 1],
+            ],
+        ], 200),
+        'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
+    ]);
+
+    $self = PeckUser::factory()->create(['gaijin_id' => 424242]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $self->gaijin_id)
+        ->call('selectMemberTab', 'manage')
+        ->assertSee('Kick user')
+        ->assertDontSee('Change role')
+        ->set('manageRole', 'Officer')
+        ->call('changeMemberRole')
+        ->assertForbidden();
+
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/v1/clans/role/'));
+});
+
+test('manage tab is hidden for members who left the squadron', function () {
+    actingThunderAdmin('Commander');
+
+    config()->set('peck.squadron_id', '1061551');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [],
+            'candidates' => [],
+        ], 200),
+    ]);
+
+    $exMember = PeckUser::factory()->create(['gaijin_id' => 801160]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $exMember->gaijin_id)
+        ->assertSee('Member')
+        ->assertSee('Context')
+        ->assertDontSee('Manage')
+        ->call('selectMemberTab', 'manage')
+        ->assertForbidden();
 });
 
 test('member username resolves through the user thunderapi token when server login fails', function () {

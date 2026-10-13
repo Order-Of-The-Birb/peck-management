@@ -188,6 +188,8 @@ new #[Title('Profile settings')] class extends Component {
     {
         $this->thunderToken?->delete();
 
+        unset($this->thunderToken);
+
         $this->reset('thunderEmail', 'thunderPassword', 'thunderCode');
         $this->twoFactorRequired = false;
         $this->thunderError = null;
