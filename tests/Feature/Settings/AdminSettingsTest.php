@@ -249,7 +249,15 @@ test('admin settings confirms before resetting existing api token', function () 
         ->and($storedApiKey->key)->not->toBe($previousHash);
 });
 
-test('delete user section filters war thunder users and shows empty state', function () {
+test('delete user section filters war thunder users by username and shows empty state', function () {
+    Cache::flush();
+
+    config()->set('peck.thunderapi_base_url', 'https://thunder.example');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
     $admin = User::query()->create([
         'name' => 'Admin Delete User Search',
         'email' => 'admin-delete-user-search@example.com',
@@ -269,10 +277,17 @@ test('delete user section filters war thunder users and shows empty state', func
         'gaijin_id' => 910041,
     ]);
 
+    Http::fake([
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            '910040' => ['nick' => 'MatchingBird'],
+            '910041' => ['nick' => 'OtherBird'],
+        ], 200),
+    ]);
+
     $this->actingAs($admin);
 
     $component = Livewire::test('pages::settings.admin')
-        ->set('peckUserDeletionSearch', (string) $matchingPeckUser->gaijin_id);
+        ->set('peckUserDeletionSearch', 'MatchingBird');
 
     $filteredPeckUsers = $component->get('filteredPeckUsersForDeletion');
 
@@ -281,7 +296,7 @@ test('delete user section filters war thunder users and shows empty state', func
     expect($filteredPeckUsers->pluck('gaijin_id')->all())->not->toContain($nonMatchingPeckUser->gaijin_id);
 
     $component
-        ->set('peckUserDeletionSearch', '999999999')
+        ->set('peckUserDeletionSearch', 'NoSuchBird')
         ->assertSee('No users match your search.');
 });
 

@@ -21,7 +21,7 @@
                     <div class="ml-auto w-xl">
                         <flux:input
                             wire:model.live.debounce.300ms="search"
-                            :placeholder="__('Search by Gaijin ID, Discord ID, or username')"
+                            :placeholder="__('Search by Discord ID or username')"
                         />
                     </div>
 
@@ -105,14 +105,6 @@
                         <thead class="bg-neutral-100/70 text-xs uppercase tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
                             <tr>
                                 <th class="px-3 py-2">
-                                    <button type="button" wire:click="sort('gaijin_id')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
-                                        {{ __('Gaijin ID') }}
-                                        @if ($this->isSortedBy('gaijin_id'))
-                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
-                                        @endif
-                                    </button>
-                                </th>
-                                <th class="px-3 py-2">
                                     <button type="button" wire:click="sort('username')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
                                         {{ __('Username') }}
                                         @if ($this->isSortedBy('username'))
@@ -136,6 +128,14 @@
                                         @endif
                                     </button>
                                 </th>
+                                <th class="px-3 py-2">
+                                    <button type="button" wire:click="sort('join_date')" class="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-100">
+                                        {{ __('Join date') }}
+                                        @if ($this->isSortedBy('join_date'))
+                                            <span class="text-[10px]">{{ strtoupper($sortDirection) }}</span>
+                                        @endif
+                                    </button>
+                                </th>
                                 <th class="px-3 py-2 text-right">{{ __('Actions') }}</th>
                             </tr>
                         </thead>
@@ -143,10 +143,10 @@
                         <tbody class="divide-y divide-neutral-100 dark:divide-neutral-800">
                             @forelse ($shownUsers as $peckUser)
                                 <tr wire:key="member-{{ $peckUser->gaijin_id }}">
-                                    <td class="px-3 py-2 font-medium">{{ $peckUser->gaijin_id }}</td>
                                     <td class="px-3 py-2">{{ $usernames[$peckUser->gaijin_id] ?? '—' }}</td>
                                     <td class="px-3 py-2">{{ $peckUser->discord_id ?? '—' }}</td>
                                     <td class="px-3 py-2">{{ $memberStatuses[$peckUser->gaijin_id] ?? '—' }}</td>
+                                    <td class="px-3 py-2">{{ $memberJoinDates[$peckUser->gaijin_id] ?? '—' }}</td>
                                     <td class="px-3 py-2 text-right">
                                         <flux:button
                                             type="button"
@@ -408,8 +408,7 @@
                 @if ($selectedMember !== null)
                     <div class="space-y-6">
                         <div>
-                            <flux:heading size="lg">{{ $memberUsername ?? $selectedMember->gaijin_id }}</flux:heading>
-                            <flux:subheading>#{{ $selectedMember->gaijin_id }}</flux:subheading>
+                            <flux:heading size="lg">{{ $memberUsername ?? '—' }}</flux:heading>
                         </div>
 
                         <div class="flex items-center gap-1 border-b border-neutral-200 dark:border-neutral-700">
@@ -438,12 +437,6 @@
                             <div class="space-y-4">
                                 <div class="grid gap-4 md:grid-cols-2">
                                     @if (! $memberEditMode)
-                                        <flux:input
-                                            :label="__('Gaijin ID')"
-                                            :value="$selectedMember->gaijin_id"
-                                            readonly
-                                        />
-
                                         <flux:input
                                             :label="__('Username')"
                                             :value="$memberUsername ?? '—'"
@@ -497,7 +490,7 @@
                                     <div class="space-y-2 border-t border-neutral-200 pt-4 dark:border-neutral-700">
                                         <flux:input
                                             wire:model.live="ownerSearch"
-                                            :label="__('Search owner by username or Gaijin ID')"
+                                            :label="__('Search owner by username')"
                                             :placeholder="__('Type to search…')"
                                         />
 
@@ -505,7 +498,7 @@
                                             <option value="">{{ __('—') }}</option>
                                             @foreach ($ownerOptions as $ownerOption)
                                                 <option value="{{ $ownerOption['gaijin_id'] }}">
-                                                    {{ $ownerOption['username'] ?? $ownerOption['gaijin_id'] }} ({{ $ownerOption['gaijin_id'] }})
+                                                    {{ $ownerOption['username'] ?? '—' }}
                                                 </option>
                                             @endforeach
                                         </flux:select>
@@ -513,7 +506,7 @@
                                 @else
                                     <flux:input
                                         :label="__('Owner')"
-                                        :value="$memberOwnerGaijinId !== null ? (($usernames[$memberOwnerGaijinId] ?? $memberOwnerGaijinId) . ' (' . $memberOwnerGaijinId . ')') : '—'"
+                                        :value="$memberOwnerGaijinId !== null ? ($usernames[$memberOwnerGaijinId] ?? '—') : '—'"
                                         readonly
                                     />
                                 @endif
@@ -716,7 +709,7 @@
                         <div>
                             <flux:heading size="lg">{{ __('Kick user') }}</flux:heading>
                             <flux:subheading>
-                                {{ __('Are you sure you want to kick #:gaijinId?', ['gaijinId' => $selectedMember->gaijin_id]) }}
+                                {{ __('Are you sure you want to kick this user?') }}
                             </flux:subheading>
                         </div>
 

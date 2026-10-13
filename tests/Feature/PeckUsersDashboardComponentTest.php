@@ -59,15 +59,15 @@ test('peck users dashboard component is discoverable and mountable', function ()
         ->and($instance->section)->toBe('members');
 });
 
-test('members list shows gaijin id, discord id and a view button', function () {
+test('members list shows discord id and a view button without exposing the gaijin id', function () {
     $member = PeckUser::factory()->create([
         'gaijin_id' => 800001,
     ]);
 
     Livewire::test(PeckUsersDashboard::class)
-        ->assertSee((string) $member->gaijin_id)
         ->assertSee((string) $member->discord_id)
-        ->assertSee('View');
+        ->assertSee('View')
+        ->assertDontSeeText((string) $member->gaijin_id);
 });
 
 test('members list is searchable by gaijin id and discord id', function () {
@@ -81,8 +81,8 @@ test('members list is searchable by gaijin id and discord id', function () {
 
     Livewire::test(PeckUsersDashboard::class)
         ->set('search', '800010')
-        ->assertSee((string) $member->gaijin_id)
-        ->assertDontSee((string) $other->gaijin_id);
+        ->assertSee((string) $member->discord_id)
+        ->assertDontSee((string) $other->discord_id);
 });
 
 test('members list is searchable by username', function () {
@@ -103,9 +103,8 @@ test('members list is searchable by username', function () {
 
     Livewire::test(PeckUsersDashboard::class)
         ->set('search', 'AlphaBird')
-        ->assertSee((string) $member->gaijin_id)
         ->assertSee('AlphaBird')
-        ->assertDontSee((string) $other->gaijin_id);
+        ->assertDontSee('OtherUser');
 });
 
 test('members list can be sorted by username', function () {
@@ -157,6 +156,34 @@ test('members list can be sorted by status', function () {
         ->assertSeeInOrder(['applicant', 'ex_member', 'member']);
 });
 
+test('members list can be sorted by join date', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $early = PeckUser::factory()->create(['gaijin_id' => 802210]);
+    $late = PeckUser::factory()->create(['gaijin_id' => 802211]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => (string) $late->gaijin_id, 'nick' => 'LateBird', 'role' => 3, 'date' => Carbon::parse('2024-01-01 00:00:00', 'UTC')->timestamp],
+                ['uid' => (string) $early->gaijin_id, 'nick' => 'EarlyBird', 'role' => 3, 'date' => Carbon::parse('2020-01-01 00:00:00', 'UTC')->timestamp],
+            ],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('sort', 'join_date')
+        ->assertSet('sortBy', 'join_date')
+        ->assertSeeInOrder(['2020-01-01', '2024-01-01'])
+        ->call('sort', 'join_date')
+        ->assertSet('sortDirection', 'desc')
+        ->assertSeeInOrder(['2024-01-01', '2020-01-01']);
+});
+
 test('member modal shows the join date', function () {
     config()->set('peck.squadron_id', '1061551');
     config()->set('peck.thunderapi_server.email', 'server@example.com');
@@ -179,6 +206,31 @@ test('member modal shows the join date', function () {
 
     Livewire::test(PeckUsersDashboard::class)
         ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Join date')
+        ->assertSee('2023-05-04');
+});
+
+test('members list shows the join date for each member', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $member = PeckUser::factory()->create(['gaijin_id' => 802305]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [[
+                'uid' => (string) $member->gaijin_id,
+                'nick' => 'M',
+                'role' => 3,
+                'date' => Carbon::parse('2023-05-04 12:00:00', 'UTC')->timestamp,
+            ]],
+        ], 200),
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
         ->assertSee('Join date')
         ->assertSee('2023-05-04');
 });
@@ -208,7 +260,8 @@ test('member modal shows the initiator', function () {
     Livewire::test(PeckUsersDashboard::class)
         ->call('openMemberModal', $member->gaijin_id)
         ->assertSee('Initiator')
-        ->assertSee('RecruiterBird (802302)');
+        ->assertSee('RecruiterBird')
+        ->assertDontSee('802302');
 });
 
 test('refresh button is only shown to users with write access', function () {
@@ -731,7 +784,7 @@ test('members list resolves usernames via the terse endpoint using the server lo
 
     Livewire::test(PeckUsersDashboard::class)
         ->assertSee('AlphaBird')
-        ->assertSee((string) $member->gaijin_id);
+        ->assertDontSeeText((string) $member->gaijin_id);
 });
 
 test('shows an error popup when thunderapi is unreachable during username resolution', function () {

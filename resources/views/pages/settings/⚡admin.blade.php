@@ -364,9 +364,13 @@ new #[Title('Administration settings')] class extends Component
 
         $searchTerm = trim($this->peckUserDeletionSearch);
 
+        $matchingIds = $searchTerm === ''
+            ? null
+            : $this->matchingUsernameIds($searchTerm);
+
         $users = PeckUser::query()
-            ->when($searchTerm !== '', function ($query) use ($searchTerm): void {
-                $query->where('gaijin_id', 'like', '%'.$searchTerm.'%');
+            ->when($matchingIds !== null, function ($query) use ($matchingIds): void {
+                $query->whereIn('gaijin_id', $matchingIds);
             })
             ->orderBy('gaijin_id')
             ->get(['gaijin_id']);
@@ -374,6 +378,38 @@ new #[Title('Administration settings')] class extends Component
         $this->attachUsernames($users);
 
         return $users;
+    }
+
+    /**
+     * Return the Gaijin IDs whose resolved nickname contains the search term.
+     *
+     * @return list<int>
+     */
+    protected function matchingUsernameIds(string $term): array
+    {
+        $gaijinIds = PeckUser::query()
+            ->pluck('gaijin_id')
+            ->map(static fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds);
+
+        $term = mb_strtolower($term);
+
+        $matches = [];
+
+        foreach ($usernames as $gaijinId => $nickname) {
+            if (is_string($nickname) && str_contains(mb_strtolower($nickname), $term)) {
+                $matches[] = (int) $gaijinId;
+            }
+        }
+
+        return $matches;
     }
 
     public function openDeletePeckUserModal(int $gaijinId): void
@@ -1014,19 +1050,19 @@ new #[Title('Administration settings')] class extends Component
             </div>
 
             <div class="space-y-3">
-                <flux:input wire:model.live.debounce.300ms="peckUserDeletionSearch" :label="__('Search by Gaijin ID')" />
+                <flux:input wire:model.live.debounce.300ms="peckUserDeletionSearch" :label="__('Search by username')" />
 
                 <div class="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
                     <div class="max-h-56 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
                         @forelse ($this->filteredPeckUsersForDeletion as $filteredPeckUser)
                             <div wire:key="delete-peck-user-row-{{ $filteredPeckUser->gaijin_id }}" class="flex items-center justify-between gap-3 px-3 py-2">
-                                <flux:text>{{ $filteredPeckUser->username ?? $filteredPeckUser->gaijin_id }}</flux:text>
+                                <flux:text>{{ $filteredPeckUser->username ?? '—' }}</flux:text>
 
                                 <button
                                     type="button"
                                     wire:click="openDeletePeckUserModal({{ $filteredPeckUser->gaijin_id }})"
                                     class="rounded-md p-2 text-neutral-500 transition hover:bg-red-50 hover:text-red-600 dark:text-neutral-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
-                                    aria-label="{{ __('Delete :username', ['username' => $filteredPeckUser->username ?? $filteredPeckUser->gaijin_id]) }}"
+                                    aria-label="{{ __('Delete :username', ['username' => $filteredPeckUser->username ?? '—']) }}"
                                 >
                                     <flux:icon.trash class="size-4" />
                                 </button>
@@ -1210,7 +1246,6 @@ new #[Title('Administration settings')] class extends Component
 
                 <div class="space-y-1 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
                     <flux:text>{{ __('Username: :username', ['username' => $pendingDeletePeckUserDetails['username'] ?? '—']) }}</flux:text>
-                    <flux:text>{{ __('Gaijin ID: :gaijinId', ['gaijinId' => $pendingDeletePeckUserDetails['gaijin_id'] ?? '—']) }}</flux:text>
                     <flux:text>{{ __('Status: :status', ['status' => $pendingDeletePeckUserDetails['status'] ?? '—']) }}</flux:text>
                     <flux:text>{{ __('Discord ID: :discordId', ['discordId' => $pendingDeletePeckUserDetails['discord_id'] ?? '—']) }}</flux:text>
                 </div>

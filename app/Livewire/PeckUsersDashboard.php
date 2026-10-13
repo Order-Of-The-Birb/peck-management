@@ -336,6 +336,7 @@ class PeckUsersDashboard extends Component
             'discord_id',
             'username',
             'status',
+            'join_date',
         ];
     }
 
@@ -1670,7 +1671,7 @@ class PeckUsersDashboard extends Component
                     });
                 });
 
-            if (in_array($sortBy, ['username', 'status'], true)) {
+            if (in_array($sortBy, ['username', 'status', 'join_date'], true)) {
                 $shownUsers = $this->paginateMembersByResolvedColumn($membersQuery, $sortBy, $sortDirection, $unreachable);
             } else {
                 $shownUsers = $membersQuery
@@ -1731,7 +1732,10 @@ class PeckUsersDashboard extends Component
         }
 
         $memberStatuses = $this->resolveMemberStatuses($shownUsers, $selectedMember, $unreachable);
-        $memberJoinDate = $this->resolveMemberJoinDate($selectedMember, $unreachable);
+        $memberJoinDates = $this->resolveMemberJoinDates($shownUsers, $selectedMember, $unreachable);
+        $memberJoinDate = $selectedMember !== null
+            ? ($memberJoinDates[$selectedMember->gaijin_id] ?? null)
+            : null;
         $memberInitiator = $this->resolveMemberInitiator($selectedMember, $unreachable);
 
         $this->syncThunderApiErrorState($unreachable);
@@ -1773,6 +1777,7 @@ class PeckUsersDashboard extends Component
             'memberOwnerGaijinId' => $memberOwnerGaijinId,
             'memberUsername' => $usernames[$this->selectedMemberGaijinId] ?? null,
             'memberStatuses' => $memberStatuses,
+            'memberJoinDates' => $memberJoinDates,
             'memberJoinDate' => $memberJoinDate,
             'memberInitiator' => $memberInitiator,
             'ownerOptions' => $ownerOptions,
@@ -1792,9 +1797,11 @@ class PeckUsersDashboard extends Component
     {
         $members = $query->get();
 
-        $values = $column === 'status'
-            ? $this->resolveStatusesFor($members, $unreachable)
-            : $this->resolveUsernamesFor($members, $unreachable);
+        $values = match ($column) {
+            'status' => $this->resolveStatusesFor($members, $unreachable),
+            'join_date' => $this->resolveJoinDatesFor($members, $unreachable),
+            default => $this->resolveUsernamesFor($members, $unreachable),
+        };
 
         $sorted = $members->sort(function (PeckUser $left, PeckUser $right) use ($values, $direction): int {
             $leftValue = mb_strtolower((string) ($values[$left->gaijin_id] ?? ''));
@@ -1904,12 +1911,40 @@ class PeckUsersDashboard extends Component
     }
 
     /**
-     * Resolve the selected member's join date from the squadron roster.
+     * Resolve the join dates for the shown members and the selected member.
+     *
+     * @param  LengthAwarePaginator<PeckUser>|null  $shownUsers
+     * @return array<int, ?string>
      */
-    protected function resolveMemberJoinDate(?PeckUser $selectedMember, bool &$unreachable): ?string
+    protected function resolveMemberJoinDates(mixed $shownUsers, ?PeckUser $selectedMember, bool &$unreachable): array
     {
-        if (! $this->isMembersSection() || $selectedMember === null) {
-            return null;
+        if (! $this->isMembersSection()) {
+            return [];
+        }
+
+        $members = [];
+
+        foreach ($shownUsers ?? [] as $peckUser) {
+            $members[] = $peckUser;
+        }
+
+        if ($selectedMember !== null) {
+            $members[] = $selectedMember;
+        }
+
+        return $this->resolveJoinDatesFor($members, $unreachable);
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return array<int, ?string>
+     */
+    protected function resolveJoinDatesFor(iterable $members, bool &$unreachable): array
+    {
+        $gaijinIds = $this->memberGaijinIds($members);
+
+        if ($gaijinIds === []) {
+            return [];
         }
 
         $rosterUnreachable = false;
@@ -1917,11 +1952,17 @@ class PeckUsersDashboard extends Component
         $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
         $unreachable = $unreachable || $rosterUnreachable;
 
-        $joinTimestamp = $resolver->joinDateFor($selectedMember->gaijin_id, $roster);
+        $joinDates = [];
 
-        return $joinTimestamp !== null
-            ? Carbon::createFromTimestamp($joinTimestamp)->format('Y-m-d')
-            : null;
+        foreach ($gaijinIds as $gaijinId) {
+            $joinTimestamp = $resolver->joinDateFor($gaijinId, $roster);
+
+            $joinDates[$gaijinId] = $joinTimestamp !== null
+                ? Carbon::createFromTimestamp($joinTimestamp)->format('Y-m-d')
+                : null;
+        }
+
+        return $joinDates;
     }
 
     /**
@@ -1944,9 +1985,7 @@ class PeckUsersDashboard extends Component
             return null;
         }
 
-        return $initiator['nickname'] !== null
-            ? $initiator['nickname'].' ('.$initiator['initiator'].')'
-            : (string) $initiator['initiator'];
+        return $initiator['nickname'];
     }
 
     protected function nullableString(mixed $value): ?string
