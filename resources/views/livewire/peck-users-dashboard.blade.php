@@ -289,7 +289,6 @@
                                         <div class="flex items-center justify-between gap-4">
                                             <div class="min-w-0 flex-1 rounded-lg bg-neutral-100 px-6 py-2 dark:bg-neutral-800">
                                                 <flux:heading size="sm" class="truncate">{{ $applicant['nickname'] }}</flux:heading>
-                                                <flux:text class="text-sm text-neutral-500 dark:text-neutral-400">#{{ $applicant['uid'] }}</flux:text>
                                             </div>
 
                                             @if ($applicant['timestamp'] !== null)
@@ -315,7 +314,6 @@
                             <div class="space-y-6">
                                 <div>
                                     <flux:heading size="lg">{{ $applicant['nickname'] }}</flux:heading>
-                                    <flux:subheading>#{{ $applicant['uid'] }}</flux:subheading>
                                 </div>
 
                                 <div class="grid gap-4 sm:grid-cols-2">
