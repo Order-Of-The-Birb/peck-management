@@ -102,7 +102,7 @@ test('invalid thunderapi credentials show an error and store nothing', function 
         ->set('thunderEmail', 'thunder@example.com')
         ->set('thunderPassword', 'secret-password')
         ->call('submitThunderLogin')
-        ->assertSet('thunderError', 'ThunderAPI login failed (HTTP 400).');
+        ->assertSet('thunderError', 'Login failed');
 
     expect(ThunderApiToken::query()->exists())->toBeFalse();
 });

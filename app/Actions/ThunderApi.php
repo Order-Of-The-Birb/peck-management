@@ -48,7 +48,13 @@ class ThunderApi
         }
 
         if (! $response->successful()) {
-            throw new ThunderApiException(sprintf('ThunderAPI login failed (HTTP %d).', $response->status()));
+            $detail = $response->json('detail');
+
+            $message = is_string($detail) && $detail !== ''
+                ? $detail
+                : sprintf('ThunderAPI login failed (HTTP %d).', $response->status());
+
+            throw new ThunderApiException($message);
         }
 
         $token = $response->json('token');
