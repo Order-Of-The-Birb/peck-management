@@ -25,6 +25,8 @@ test('user can link a thunderapi account', function () {
 
     $this->actingAs($user);
 
+    $this->freezeTime();
+
     Http::fake([
         'https://thunder.example/v1/login' => Http::response([
             'status' => 'OK',
