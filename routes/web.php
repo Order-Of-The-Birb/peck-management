@@ -6,25 +6,25 @@ Route::get('/', function () {
     return redirect()->route('dashboard');
 })->name('home');
 
-Route::get('/dashboard', function () {
+Route::get('/members', function () {
     return view('dashboard', [
         'dashboardSection' => 'members',
     ]);
 })->middleware(['auth'])->name('dashboard');
 
-Route::redirect('/leave-info', '/dashboard')->middleware(['auth'])->name('dashboard.leave-info');
+Route::redirect('/leave-info', '/members')->middleware(['auth'])->name('dashboard.leave-info');
 
-Route::redirect('/alts', '/dashboard')->middleware(['auth'])->name('dashboard.alts');
+Route::redirect('/alts', '/members')->middleware(['auth'])->name('dashboard.alts');
 
-Route::redirect('/context', '/dashboard')->middleware(['auth'])->name('dashboard.context');
+Route::redirect('/context', '/members')->middleware(['auth'])->name('dashboard.context');
 
-Route::get('/squadron/logs', function () {
+Route::get('/logs', function () {
     return view('dashboard', [
         'dashboardSection' => 'squadron_logs',
     ]);
 })->middleware(['auth'])->name('dashboard.squadron.logs');
 
-Route::get('/squadron/applications', function () {
+Route::get('/applicants', function () {
     return view('dashboard', [
         'dashboardSection' => 'squadron_applications',
     ]);
