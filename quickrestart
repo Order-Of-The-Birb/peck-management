@@ -1,16 +1,20 @@
+
 #!/bin/bash
+set -e
+
+cd /srv/peck/management
+
 git pull
 
-php artisan down
+sudo -u peck php artisan down
 
-php artisan cache:clear
-php artisan optimize:clear
-php artisan optimize
-php artisan config:cache
-php artisan view:cache
-php artisan route:cache
-php artisan reload
+trap 'sudo -u peck php artisan up' EXIT
 
-php artisan up
+sudo -u peck php artisan optimize:clear
+sudo -u peck php artisan optimize
+sudo -u peck php artisan reload
 
-echo "Server updated"
+sudo systemctl restart peck-management.service
+
+echo "Server updated successfully"
+
