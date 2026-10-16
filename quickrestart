@@ -1,20 +1,18 @@
-
 #!/bin/bash
 set -e
 
 cd /srv/peck/management
 
-git pull
+git pull --ff-only
 
 sudo -u peck php artisan down
-
 trap 'sudo -u peck php artisan up' EXIT
 
 sudo -u peck php artisan optimize:clear
 sudo -u peck php artisan optimize
 sudo -u peck php artisan reload
 
-sudo systemctl restart peck-management.service
+sudo systemctl reload php8.4-fpm
 
 echo "Server updated successfully"
 
