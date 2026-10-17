@@ -15,14 +15,8 @@ class PeckUser extends Model
     use HasFactory;
 
     public const STATUSES = [
+        'member',
         'applicant',
-        'unverified',
-        'ex_member',
-        'member',
-    ];
-
-    public const DASHBOARD_EDITABLE_STATUSES = [
-        'member',
         'ex_member',
     ];
 
@@ -43,12 +37,9 @@ class PeckUser extends Model
      */
     protected $fillable = [
         'gaijin_id',
-        'username',
         'discord_id',
         'tz',
-        'status',
-        'joindate',
-        'initiator',
+        'sqb_part',
     ];
 
     /**
@@ -61,19 +52,56 @@ class PeckUser extends Model
         return [
             'gaijin_id' => 'integer',
             'discord_id' => 'integer',
-            'tz' => 'integer',
-            'joindate' => 'datetime',
-            'initiator' => 'integer',
         ];
     }
+
+    /**
+     * The relationships that should always be loaded.
+     *
+     * @var list<string>
+     */
+    protected $with = ['userData'];
+
+    /**
+     * Pending user data values to persist after save.
+     *
+     * @var array<string, mixed>
+     */
+    private array $pendingUserData = [];
 
     protected static function booted(): void
     {
         static::saving(function (self $peckUser): void {
-            $peckUser->status = self::resolvePersistedStatus(
-                status: (string) $peckUser->status,
-                discordId: $peckUser->discord_id,
-            );
+            if ($peckUser->isDirty('discord_id') && $peckUser->discord_id !== null) {
+                PeckUserData::firstOrCreate(
+                    ['discord_id' => $peckUser->discord_id],
+                    [
+                        'sqb_part' => $peckUser->pendingUserData['sqb_part'] ?? null,
+                        'timezone' => $peckUser->pendingUserData['timezone'] ?? null,
+                    ],
+                );
+            }
+        });
+
+        static::creating(function (self $peckUser): void {
+            if ($peckUser->discord_id !== null) {
+                PeckUserData::firstOrCreate(
+                    ['discord_id' => $peckUser->discord_id],
+                    [
+                        'sqb_part' => $peckUser->pendingUserData['sqb_part'] ?? null,
+                        'timezone' => $peckUser->pendingUserData['timezone'] ?? null,
+                    ],
+                );
+            }
+        });
+
+        static::saved(function (self $peckUser): void {
+            if ($peckUser->discord_id !== null && $peckUser->pendingUserData !== []) {
+                PeckUserData::where('discord_id', $peckUser->discord_id)
+                    ->update($peckUser->pendingUserData);
+                $peckUser->pendingUserData = [];
+                $peckUser->unsetRelation('userData');
+            }
         });
     }
 
@@ -82,14 +110,29 @@ class PeckUser extends Model
         return PeckUserFactory::new();
     }
 
-    public function initiatorUser(): BelongsTo
+    public function userData(): BelongsTo
     {
-        return $this->belongsTo(self::class, 'initiator', 'gaijin_id');
+        return $this->belongsTo(PeckUserData::class, 'discord_id', 'discord_id');
     }
 
-    public function initiatorOfficer(): BelongsTo
+    public function getTzAttribute(): ?int
     {
-        return $this->belongsTo(Officer::class, 'initiator', 'gaijin_id');
+        return $this->userData?->timezone;
+    }
+
+    public function setTzAttribute(?int $value): void
+    {
+        $this->pendingUserData['timezone'] = $value;
+    }
+
+    public function getSqbPartAttribute(): ?bool
+    {
+        return $this->userData?->sqb_part;
+    }
+
+    public function setSqbPartAttribute(?bool $value): void
+    {
+        $this->pendingUserData['sqb_part'] = $value;
     }
 
     public function officer(): HasOne
@@ -105,18 +148,5 @@ class PeckUser extends Model
     public function contexts(): HasMany
     {
         return $this->hasMany(PeckUserContext::class, 'user_id', 'gaijin_id');
-    }
-
-    public static function resolvePersistedStatus(string $status, mixed $discordId): string
-    {
-        if ($status === 'member' && $discordId === null) {
-            return 'unverified';
-        }
-
-        if ($status === 'unverified' && $discordId !== null) {
-            return 'member';
-        }
-
-        return $status;
     }
 }

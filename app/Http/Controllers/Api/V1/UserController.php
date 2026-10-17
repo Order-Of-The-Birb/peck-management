@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Actions\ResolveSquadronRoster;
+use App\Actions\ResolveUsernames;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreApiUserContextRequest;
 use App\Http\Requests\StoreApiUserRequest;
 use App\Http\Requests\UpdateApiUserContextRequest;
 use App\Http\Requests\UpdateApiUserRequest;
-use App\Http\Requests\UpsertApiUserLeaveInfoRequest;
 use App\Http\Resources\PeckUserContextResource;
 use App\Http\Resources\PeckUserResource;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
 use Illuminate\Http\JsonResponse;
@@ -30,12 +30,10 @@ class UserController extends Controller
             'tz' => ['nullable', 'integer', 'between:-11,12'],
             'sort_by' => ['nullable', 'string', Rule::in([
                 'gaijin_id',
-                'username',
                 'status',
                 'discord_id',
                 'tz',
-                'joindate',
-                'initiator',
+                'sqb_part',
             ])],
             'sort_direction' => ['nullable', 'string', Rule::in(['asc', 'desc'])],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
@@ -43,42 +41,160 @@ class UserController extends Controller
         ]);
 
         $searchTerm = $validated['search'] ?? null;
+        $statusFilter = $validated['status'] ?? null;
         $sortBy = $validated['sort_by'] ?? 'gaijin_id';
         $sortDirection = $validated['sort_direction'] ?? 'asc';
         $perPage = $validated['per_page'] ?? 15;
         $page = $validated['page'] ?? 1;
 
-        $users = PeckUser::query()
-            ->with(['initiatorUser', 'initiatorOfficer'])
-            ->when($searchTerm !== null && $searchTerm !== '', function ($query) use ($searchTerm): void {
+        $usernameMatches = $searchTerm !== null && $searchTerm !== '' && ! ctype_digit($searchTerm)
+            ? $this->matchingUsernameIds($this->resolveAllUsernames(), $searchTerm)
+            : [];
+
+        $query = PeckUser::query()
+            ->when($searchTerm !== null && $searchTerm !== '', function ($query) use ($searchTerm, $usernameMatches): void {
                 $likeSearchTerm = '%'.$searchTerm.'%';
 
-                $query->where(function ($innerQuery) use ($likeSearchTerm): void {
+                $query->where(function ($innerQuery) use ($likeSearchTerm, $usernameMatches): void {
                     $innerQuery
                         ->where('gaijin_id', 'like', $likeSearchTerm)
-                        ->orWhere('username', 'like', $likeSearchTerm)
                         ->orWhere('discord_id', 'like', $likeSearchTerm);
+
+                    if ($usernameMatches !== []) {
+                        $innerQuery->orWhereIn('gaijin_id', $usernameMatches);
+                    }
                 });
             })
-            ->when(array_key_exists('status', $validated) && $validated['status'] !== null, function ($query) use ($validated): void {
-                $query->where('status', $validated['status']);
-            })
             ->when(array_key_exists('tz', $validated) && $validated['tz'] !== null, function ($query) use ($validated): void {
-                $query->where('tz', $validated['tz']);
-            })
-            ->orderBy($sortBy, $sortDirection)
-            ->orderBy('gaijin_id')
-            ->forPage($page, $perPage)
-            ->get();
+                $query->whereHas('userData', function ($q) use ($validated): void {
+                    $q->where('timezone', $validated['tz']);
+                });
+            });
+
+        if ($statusFilter !== null || $sortBy === 'status') {
+            $users = $query->orderBy('gaijin_id')->get();
+
+            $users = $this->filterByDerivedStatus($users, $statusFilter, $sortBy, $sortDirection, $page, $perPage);
+        } else {
+            $users = $query
+                ->when(in_array($sortBy, ['tz', 'sqb_part'], true), function ($query) use ($sortBy, $sortDirection): void {
+                    $column = $sortBy === 'tz' ? 'timezone' : 'sqb_part';
+                    $query->orderByRaw(
+                        '(SELECT '.$column.' FROM peck_user_data WHERE peck_user_data.discord_id = peck_users.discord_id) '.$sortDirection,
+                    );
+                }, function ($query) use ($sortBy, $sortDirection): void {
+                    $query->orderBy($sortBy, $sortDirection);
+                })
+                ->orderBy('gaijin_id')
+                ->forPage($page, $perPage)
+                ->get();
+        }
+
+        $this->attachUsernames($users);
 
         return PeckUserResource::collection($users);
+    }
+
+    /**
+     * Resolve and attach ThunderAPI usernames to the given users.
+     *
+     * @param  Collection<int, PeckUser>  $users
+     */
+    private function attachUsernames(Collection $users): void
+    {
+        $gaijinIds = $users
+            ->map(fn (PeckUser $user): int => (int) $user->gaijin_id)
+            ->filter(fn (int $gaijinId): bool => $gaijinId > 0)
+            ->values()
+            ->all();
+
+        $usernames = $gaijinIds === []
+            ? []
+            : app(ResolveUsernames::class)->resolve($gaijinIds);
+
+        $users->each(function (PeckUser $user) use ($usernames): void {
+            $user->setAttribute('username', $usernames[(int) $user->gaijin_id] ?? null);
+        });
+    }
+
+    /**
+     * Resolve nicknames for every stored user so the API can be searched by username.
+     *
+     * @return array<int, string>
+     */
+    private function resolveAllUsernames(): array
+    {
+        $gaijinIds = PeckUser::query()
+            ->pluck('gaijin_id')
+            ->map(fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        return app(ResolveUsernames::class)->resolve($gaijinIds);
+    }
+
+    /**
+     * Return the Gaijin IDs whose resolved nickname contains the search term.
+     *
+     * @param  array<int, string>  $usernames
+     * @return list<int>
+     */
+    private function matchingUsernameIds(array $usernames, string $term): array
+    {
+        $term = mb_strtolower($term);
+
+        $matches = [];
+
+        foreach ($usernames as $gaijinId => $nickname) {
+            if (is_string($nickname) && str_contains(mb_strtolower($nickname), $term)) {
+                $matches[] = (int) $gaijinId;
+            }
+        }
+
+        return $matches;
+    }
+
+    /**
+     * @param  Collection<int, PeckUser>  $users
+     * @return Collection<int, PeckUser>
+     */
+    private function filterByDerivedStatus(Collection $users, ?string $statusFilter, string $sortBy, string $sortDirection, int $page, int $perPage): Collection
+    {
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve();
+
+        $rows = $users
+            ->mapWithKeys(function (PeckUser $user) use ($resolver, $roster): array {
+                return [(int) $user->gaijin_id => [
+                    'user' => $user,
+                    'status' => $resolver->statusFor((int) $user->gaijin_id, $roster),
+                ]];
+            });
+
+        if ($statusFilter !== null) {
+            $rows = $rows->filter(fn (array $row): bool => $row['status'] === $statusFilter);
+        }
+
+        if ($sortBy === 'status') {
+            $rows = $sortDirection === 'asc'
+                ? $rows->sortBy(fn (array $row): string => $row['status'] ?? '')
+                : $rows->sortByDesc(fn (array $row): string => $row['status'] ?? '');
+        }
+
+        return $rows
+            ->map(fn (array $row): PeckUser => $row['user'])
+            ->values()
+            ->forPage($page, $perPage)
+            ->values();
     }
 
     public function store(StoreApiUserRequest $request): JsonResponse
     {
         $peckUser = PeckUser::query()->create($request->validated());
-
-        $peckUser->load(['initiatorUser', 'initiatorOfficer']);
 
         return (new PeckUserResource($peckUser))
             ->response()
@@ -87,54 +203,15 @@ class UserController extends Controller
 
     public function show(PeckUser $peckUser): PeckUserResource
     {
-        $peckUser->load(['initiatorUser', 'initiatorOfficer']);
-
         return new PeckUserResource($peckUser);
     }
 
     public function update(UpdateApiUserRequest $request, PeckUser $peckUser): PeckUserResource
     {
-        $validated = $request->validated();
-        $previousStatus = $peckUser->status;
-        $previousGaijinId = $peckUser->gaijin_id;
-
-        $peckUser->fill($validated);
+        $peckUser->fill($request->validated());
         $peckUser->save();
 
-        if (array_key_exists('status', $validated) && $previousStatus === 'ex_member' && $peckUser->status !== 'ex_member') {
-            PeckLeaveInfo::query()
-                ->where('user_id', $previousGaijinId)
-                ->delete();
-        }
-
-        $peckUser->load(['initiatorUser', 'initiatorOfficer']);
-
         return new PeckUserResource($peckUser);
-    }
-
-    public function showLeaveInfo(PeckUser $peckUser): JsonResponse
-    {
-        $leaveInfoType = $peckUser->leaveInfo()->value('type');
-
-        return response()->json([
-            'status' => 'success',
-            'data' => $leaveInfoType,
-        ]);
-    }
-
-    public function upsertLeaveInfo(UpsertApiUserLeaveInfoRequest $request, PeckUser $peckUser): JsonResponse
-    {
-        $validated = $request->validated();
-
-        PeckLeaveInfo::query()->updateOrCreate(
-            ['user_id' => $peckUser->gaijin_id],
-            ['type' => $validated['type']],
-        );
-
-        return response()->json([
-            'status' => 'success',
-            'data' => $validated['type'],
-        ]);
     }
 
     public function showContexts(PeckUser $peckUser): JsonResponse
@@ -175,7 +252,7 @@ class UserController extends Controller
 
     public function destroyContext(PeckUser $peckUser, int $contextId): JsonResponse
     {
-        abort_unless(request()->user()?->level >= 1, 403);
+        abort_unless(request()->user()?->canWrite() ?? false, 403);
 
         $this->findUserContextOrFail($peckUser, $contextId)->delete();
 

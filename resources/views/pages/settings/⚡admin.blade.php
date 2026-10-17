@@ -1,23 +1,31 @@
 <?php
 
+use App\Actions\RefreshPeckDB;
+use App\Actions\ResolveUsernames;
+use App\Actions\ServerThunderApi;
+use App\Actions\ThunderApi;
+use App\Actions\ThunderApiException;
+use App\Actions\ThunderApiUnauthorizedException;
+use App\Actions\ThunderApiUnreachableException;
+use App\Actions\UpdateEnvironmentFile;
 use App\Models\ApiKey;
-use App\Models\Officer;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
+use App\Models\ThunderApiServerToken;
+use App\Models\ThunderApiToken;
 use App\Models\User;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
-use Livewire\WithPagination;
 
-new #[Title('Administration settings')] class extends Component {
-    use WithPagination;
+use function Illuminate\Support\defer;
 
+new #[Title('Administration settings')] class extends Component
+{
     public ?string $selectedManagedUserId = null;
 
     public string $selectedManagedUserLevel = '0';
@@ -37,6 +45,8 @@ new #[Title('Administration settings')] class extends Component {
 
     public string $managedUserDeletionErrorMessage = '';
 
+    public bool $showVerificationRequiredModal = false;
+
     public ?string $generatedApiToken = null;
 
     public bool $showGeneratedApiKeyModal = false;
@@ -45,46 +55,38 @@ new #[Title('Administration settings')] class extends Component {
 
     public bool $showApiKeyGenerationError = false;
 
-    public string $officerSearch = '';
-
-    public bool $showAddOfficerModal = false;
-
-    /** @var array{gaijin_id:?string,rank:?string} */
-    public array $newOfficerForm = [
-        'gaijin_id' => null,
-        'rank' => 'officer',
-    ];
-
-    public bool $showRankSwitchModal = false;
-
-    public ?int $pendingRankTargetGaijinId = null;
-
-    public ?string $pendingRankTargetUsername = null;
-
-    public ?string $pendingRankTargetCurrentRank = null;
-
-    public ?string $pendingRankTargetRequestedRank = null;
-
-    public ?int $pendingRankConflictingGaijinId = null;
-
-    public ?string $pendingRankConflictingUsername = null;
-
-    public bool $pendingRankIsCreate = false;
-
-    public string $pendingRankReplacementLabel = '';
-
     public string $peckUserDeletionSearch = '';
 
     public bool $showDeletePeckUserModal = false;
 
     public ?int $pendingDeletePeckUserGaijinId = null;
 
-    /** @var array{gaijin_id:int,username:string,status:string,discord_id:?int,joindate:?string}|null */
+    /** @var array{gaijin_id:int,username:?string,status:string,discord_id:?int}|null */
     public ?array $pendingDeletePeckUserDetails = null;
 
     public bool $showDeletePeckUserError = false;
 
     public string $deletePeckUserErrorMessage = '';
+
+    public string $squadronLookupSearch = '';
+
+    public bool $squadronLookupLoading = false;
+
+    public bool $squadronLookupFailed = false;
+
+    public bool $squadronLookupSearched = false;
+
+    public string $squadronLookupErrorMessage = '';
+
+    /** @var list<array{_id:string,tag:string,name:string}> */
+    public array $squadronLookupResults = [];
+
+    public bool $showSquadronSelectionModal = false;
+
+    /** @var array{_id:string,tag:string,name:string}|null */
+    public ?array $pendingSquadronSelection = null;
+
+    public ?string $forceRefreshError = null;
 
     #region Mounting
     public function mount(): void
@@ -95,10 +97,15 @@ new #[Title('Administration settings')] class extends Component {
             abort(403);
         }
 
-        $this->hydrateApiKeyState();
+        abort_unless($this->canManageUserLevels(), 403);
 
-        if ($this->canManageUserLevels()) {
-            $this->initializeSelectedManagedUser();
+        $this->hydrateApiKeyState();
+        $this->initializeSelectedManagedUser();
+
+        $this->squadronLookupSearch = (string) config('peck.squadron_name');
+
+        if (! $this->squadronIdConfigured && $this->squadronLookupAvailable) {
+            $this->performSquadronSearch();
         }
     }
 
@@ -112,6 +119,24 @@ new #[Title('Administration settings')] class extends Component {
     public function adminAccess(): bool
     {
         return $this->canManageUserLevels();
+    }
+
+    protected function ensureVerifiedForWrite(): bool
+    {
+        $user = Auth::user();
+
+        if ($user instanceof User && ! $user->hasVerifiedEmail()) {
+            $this->showVerificationRequiredModal = true;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    public function dismissVerificationRequiredModal(): void
+    {
+        $this->showVerificationRequiredModal = false;
     }
     #endregion
 
@@ -136,7 +161,7 @@ new #[Title('Administration settings')] class extends Component {
             return null;
         }
 
-        return User::query()->find((int) $this->selectedManagedUserId, ['id', 'name', 'email', 'level']);
+        return User::query()->find((int) $this->selectedManagedUserId, ['id', 'name', 'email', 'level', 'email_verified_at']);
     }
 
     protected function initializeSelectedManagedUser(): void
@@ -176,6 +201,10 @@ new #[Title('Administration settings')] class extends Component {
     {
         abort_unless($this->canManageUserLevels(), 403);
 
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
+
         $validated = $this->validate([
             'selectedManagedUserId' => [
                 'required',
@@ -208,6 +237,10 @@ new #[Title('Administration settings')] class extends Component {
     public function requestManagedUserDeletion(): void
     {
         abort_unless($this->canManageUserLevels(), 403);
+
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
 
         if (! filled($this->selectedManagedUserId)) {
             $this->showManagedUserDeletionError = true;
@@ -256,6 +289,10 @@ new #[Title('Administration settings')] class extends Component {
     {
         abort_unless($this->canManageUserLevels(), 403);
 
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
+
         if (! is_int($this->pendingManagedUserDeletionId)) {
             return;
         }
@@ -281,7 +318,7 @@ new #[Title('Administration settings')] class extends Component {
             }
 
             $targetUser->delete();
-        } catch (\Throwable $throwable) {
+        } catch (Throwable $throwable) {
             report($throwable);
 
             $this->showManagedUserDeletionError = true;
@@ -302,350 +339,20 @@ new #[Title('Administration settings')] class extends Component {
     }
     #endregion
 
-    #region Officer management
-    public function updatingOfficerSearch(): void
+    protected function attachUsernames(Collection $users): void
     {
-        $this->resetPage('officers-page');
-    }
+        $gaijinIds = $users
+            ->pluck('gaijin_id')
+            ->map(static fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
 
-    public function updatedOfficerSearch(string $officerSearch): void
-    {
-        if (! $this->showAddOfficerModal) {
-            return;
-        }
+        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds);
 
-        $matchingPeckUser = $this->findPeckUserBySearch($officerSearch);
-
-        if ($matchingPeckUser !== null) {
-            $this->newOfficerForm['gaijin_id'] = (string) $matchingPeckUser->gaijin_id;
+        foreach ($users as $user) {
+            $user->setAttribute('username', $usernames[$user->gaijin_id] ?? null);
         }
     }
-
-    /**
-     * @return list<string>
-     */
-    public function officerRanks(): array
-    {
-        return ['', ...Officer::RANKS];
-    }
-
-    public function officerRankLabel(?string $rank): string
-    {
-        return match ($rank) {
-            Officer::RANK_OFFICER => 'Officer',
-            Officer::RANK_DEPUTY => 'Deputy',
-            Officer::RANK_COMMANDER => 'Commander',
-            default => 'Retired',
-        };
-    }
-
-    #[Computed]
-    public function officerRecords(): LengthAwarePaginator
-    {
-        if (! $this->canManageUserLevels()) {
-            return Officer::query()->whereRaw('1 = 0')->paginate(15, ['*'], 'officers-page');
-        }
-
-        $searchTerm = trim($this->officerSearch);
-
-        return Officer::query()
-            ->select('officers.gaijin_id', 'officers.rank')
-            ->join('peck_users', 'peck_users.gaijin_id', '=', 'officers.gaijin_id')
-            ->with('peckUser')
-            ->when($searchTerm !== '', function ($query) use ($searchTerm): void {
-                $query->where(function ($innerQuery) use ($searchTerm): void {
-                    $innerQuery
-                        ->where('peck_users.username', 'like', '%'.$searchTerm.'%')
-                        ->orWhere('officers.gaijin_id', 'like', '%'.$searchTerm.'%');
-                });
-            })
-            ->orderBy('peck_users.username')
-            ->orderBy('officers.gaijin_id')
-            ->paginate(15, ['officers.*'], 'officers-page');
-    }
-
-    #[Computed]
-    public function officerSelectableUsers(): Collection
-    {
-        if (! $this->canManageUserLevels()) {
-            return collect();
-        }
-
-        return PeckUser::query()
-            ->orderBy('username')
-            ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
-    }
-
-    public function openAddOfficerModal(): void
-    {
-        abort_unless($this->canManageUserLevels(), 403);
-
-        $this->newOfficerForm = [
-            'gaijin_id' => null,
-            'rank' => 'officer',
-        ];
-
-        $matchingPeckUser = $this->findPeckUserBySearch($this->officerSearch);
-
-        if ($matchingPeckUser !== null) {
-            $this->newOfficerForm['gaijin_id'] = (string) $matchingPeckUser->gaijin_id;
-        }
-
-        $this->showAddOfficerModal = true;
-        $this->resetValidation();
-    }
-
-    public function closeAddOfficerModal(): void
-    {
-        abort_unless($this->canManageUserLevels(), 403);
-
-        $this->showAddOfficerModal = false;
-        $this->newOfficerForm = [
-            'gaijin_id' => null,
-            'rank' => 'officer',
-        ];
-        $this->resetValidation();
-    }
-
-    public function createOfficer(): void
-    {
-        abort_unless($this->canManageUserLevels(), 403);
-
-        $validated = $this->validate([
-            'newOfficerForm.gaijin_id' => [
-                'required',
-                'integer',
-                Rule::exists('peck_users', 'gaijin_id'),
-                Rule::unique('officers', 'gaijin_id'),
-            ],
-            'newOfficerForm.rank' => [
-                'nullable',
-                'string',
-                Rule::in($this->officerRanks()),
-            ],
-        ]);
-
-        $gaijinId = (int) $validated['newOfficerForm']['gaijin_id'];
-        $requestedRank = $this->normalizeOfficerRank($validated['newOfficerForm']['rank'] ?? null);
-        $conflictingOfficer = $this->findConflictingOfficer($gaijinId, $requestedRank);
-
-        if ($conflictingOfficer !== null && is_string($requestedRank)) {
-            $this->queueOfficerRankSwitch(
-                targetGaijinId: $gaijinId,
-                targetCurrentRank: null,
-                targetRequestedRank: $requestedRank,
-                conflictingOfficer: $conflictingOfficer,
-                isCreate: true,
-            );
-
-            return;
-        }
-
-        Officer::query()->create([
-            'gaijin_id' => $gaijinId,
-            'rank' => $requestedRank,
-        ]);
-
-        $this->closeAddOfficerModal();
-        $this->resetPage('officers-page');
-        $this->dispatch('officer-rank-updated');
-    }
-
-    public function attemptOfficerRankUpdate(int $gaijinId, ?string $requestedRankValue): void
-    {
-        abort_unless($this->canManageUserLevels(), 403);
-
-        $normalizedRankValue = $requestedRankValue ?? '';
-
-        if (! in_array($normalizedRankValue, $this->officerRanks(), true)) {
-            $this->addError('officerSearch', __('The selected rank is invalid.'));
-
-            return;
-        }
-
-        $officer = Officer::query()->findOrFail($gaijinId);
-        $requestedRank = $this->normalizeOfficerRank($normalizedRankValue);
-
-        if ($officer->rank === $requestedRank) {
-            return;
-        }
-
-        $conflictingOfficer = $this->findConflictingOfficer($officer->gaijin_id, $requestedRank);
-
-        if ($conflictingOfficer !== null && is_string($requestedRank)) {
-            $this->queueOfficerRankSwitch(
-                targetGaijinId: $officer->gaijin_id,
-                targetCurrentRank: $officer->rank,
-                targetRequestedRank: $requestedRank,
-                conflictingOfficer: $conflictingOfficer,
-                isCreate: false,
-            );
-
-            return;
-        }
-
-        $officer->rank = $requestedRank;
-        $officer->save();
-
-        $this->dispatch('officer-rank-updated');
-    }
-
-    public function cancelOfficerRankSwitch(): void
-    {
-        abort_unless($this->canManageUserLevels(), 403);
-
-        $this->clearOfficerRankSwitchState();
-    }
-
-    public function confirmOfficerRankSwitch(): void
-    {
-        abort_unless($this->canManageUserLevels(), 403);
-
-        if (! is_int($this->pendingRankTargetGaijinId) || ! is_string($this->pendingRankTargetRequestedRank)) {
-            return;
-        }
-
-        $targetGaijinId = $this->pendingRankTargetGaijinId;
-        $targetRequestedRank = $this->pendingRankTargetRequestedRank;
-        $targetCurrentRank = $this->pendingRankTargetCurrentRank;
-        $isCreate = $this->pendingRankIsCreate;
-
-        DB::transaction(function () use ($targetGaijinId, $targetRequestedRank, $targetCurrentRank, $isCreate): void {
-            $targetOfficer = Officer::query()->lockForUpdate()->find($targetGaijinId);
-
-            if ($targetOfficer === null && $isCreate) {
-                $targetOfficer = Officer::query()->create([
-                    'gaijin_id' => $targetGaijinId,
-                    'rank' => null,
-                ]);
-            }
-
-            if (! $targetOfficer instanceof Officer) {
-                return;
-            }
-
-            $conflictingOfficer = Officer::query()
-                ->lockForUpdate()
-                ->where('rank', $targetRequestedRank)
-                ->where('gaijin_id', '!=', $targetGaijinId)
-                ->first();
-
-            $targetOfficer->rank = $targetRequestedRank;
-            $targetOfficer->save();
-
-            if ($conflictingOfficer instanceof Officer) {
-                $conflictingOfficer->rank = $this->determineSwitchedRankForConflictingOfficer(
-                    incomingRank: $targetCurrentRank,
-                    conflictingGaijinId: $conflictingOfficer->gaijin_id,
-                );
-                $conflictingOfficer->save();
-            }
-        });
-
-        if ($isCreate) {
-            $this->closeAddOfficerModal();
-        }
-
-        $this->clearOfficerRankSwitchState();
-        $this->dispatch('officer-rank-updated');
-    }
-
-    protected function queueOfficerRankSwitch(
-        int $targetGaijinId,
-        ?string $targetCurrentRank,
-        string $targetRequestedRank,
-        Officer $conflictingOfficer,
-        bool $isCreate,
-    ): void {
-        $targetPeckUser = PeckUser::query()->find($targetGaijinId, ['gaijin_id', 'username']);
-        $conflictingPeckUser = PeckUser::query()->find($conflictingOfficer->gaijin_id, ['gaijin_id', 'username']);
-
-        $this->pendingRankTargetGaijinId = $targetGaijinId;
-        $this->pendingRankTargetUsername = $targetPeckUser?->username;
-        $this->pendingRankTargetCurrentRank = $targetCurrentRank;
-        $this->pendingRankTargetRequestedRank = $targetRequestedRank;
-        $this->pendingRankConflictingGaijinId = $conflictingOfficer->gaijin_id;
-        $this->pendingRankConflictingUsername = $conflictingPeckUser?->username;
-        $this->pendingRankIsCreate = $isCreate;
-        $this->pendingRankReplacementLabel = $this->officerRankLabel(
-            $this->determineSwitchedRankForConflictingOfficer(
-                incomingRank: $targetCurrentRank,
-                conflictingGaijinId: $conflictingOfficer->gaijin_id,
-            ),
-        );
-        $this->showRankSwitchModal = true;
-    }
-
-    protected function clearOfficerRankSwitchState(): void
-    {
-        $this->showRankSwitchModal = false;
-        $this->pendingRankTargetGaijinId = null;
-        $this->pendingRankTargetUsername = null;
-        $this->pendingRankTargetCurrentRank = null;
-        $this->pendingRankTargetRequestedRank = null;
-        $this->pendingRankConflictingGaijinId = null;
-        $this->pendingRankConflictingUsername = null;
-        $this->pendingRankIsCreate = false;
-        $this->pendingRankReplacementLabel = '';
-    }
-
-    protected function findPeckUserBySearch(string $search): ?PeckUser
-    {
-        $searchTerm = trim($search);
-
-        if ($searchTerm === '') {
-            return null;
-        }
-
-        if (ctype_digit($searchTerm)) {
-            return PeckUser::query()->find((int) $searchTerm, ['gaijin_id', 'username']);
-        }
-
-        return PeckUser::query()
-            ->where('username', 'like', '%'.$searchTerm.'%')
-            ->orderBy('username')
-            ->first(['gaijin_id', 'username']);
-    }
-
-    protected function normalizeOfficerRank(?string $rank): ?string
-    {
-        if ($rank === null || $rank === '') {
-            return null;
-        }
-
-        return $rank;
-    }
-
-    protected function findConflictingOfficer(int $targetGaijinId, ?string $requestedRank): ?Officer
-    {
-        if (! in_array($requestedRank, [Officer::RANK_DEPUTY, Officer::RANK_COMMANDER], true)) {
-            return null;
-        }
-
-        return Officer::query()
-            ->where('rank', $requestedRank)
-            ->where('gaijin_id', '!=', $targetGaijinId)
-            ->first();
-    }
-
-    protected function determineSwitchedRankForConflictingOfficer(?string $incomingRank, int $conflictingGaijinId): ?string
-    {
-        if ($incomingRank !== null) {
-            return $incomingRank;
-        }
-
-        $hasLeaveInfo = PeckLeaveInfo::query()
-            ->where('user_id', $conflictingGaijinId)
-            ->exists();
-
-        if ($hasLeaveInfo) {
-            return null;
-        }
-
-        return Officer::RANK_OFFICER;
-    }
-    #endregion
 
     #region War Thunder user deletion
     #[Computed]
@@ -657,20 +364,63 @@ new #[Title('Administration settings')] class extends Component {
 
         $searchTerm = trim($this->peckUserDeletionSearch);
 
-        return PeckUser::query()
-            ->when($searchTerm !== '', function ($query) use ($searchTerm): void {
-                $query->where('username', 'like', '%'.$searchTerm.'%');
+        $matchingIds = $searchTerm === ''
+            ? null
+            : $this->matchingUsernameIds($searchTerm);
+
+        $users = PeckUser::query()
+            ->when($matchingIds !== null, function ($query) use ($matchingIds): void {
+                $query->whereIn('gaijin_id', $matchingIds);
             })
-            ->orderBy('username')
             ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+            ->get(['gaijin_id']);
+
+        $this->attachUsernames($users);
+
+        return $users;
+    }
+
+    /**
+     * Return the Gaijin IDs whose resolved nickname contains the search term.
+     *
+     * @return list<int>
+     */
+    protected function matchingUsernameIds(string $term): array
+    {
+        $gaijinIds = PeckUser::query()
+            ->pluck('gaijin_id')
+            ->map(static fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds);
+
+        $term = mb_strtolower($term);
+
+        $matches = [];
+
+        foreach ($usernames as $gaijinId => $nickname) {
+            if (is_string($nickname) && str_contains(mb_strtolower($nickname), $term)) {
+                $matches[] = (int) $gaijinId;
+            }
+        }
+
+        return $matches;
     }
 
     public function openDeletePeckUserModal(int $gaijinId): void
     {
         abort_unless($this->canManageUserLevels(), 403);
 
-        $peckUser = PeckUser::query()->find($gaijinId, ['gaijin_id', 'username', 'status', 'discord_id', 'joindate']);
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
+
+        $peckUser = PeckUser::query()->find($gaijinId, ['gaijin_id', 'status', 'discord_id']);
 
         if (! $peckUser instanceof PeckUser) {
             $this->showDeletePeckUserError = true;
@@ -685,10 +435,9 @@ new #[Title('Administration settings')] class extends Component {
         $this->pendingDeletePeckUserGaijinId = $peckUser->gaijin_id;
         $this->pendingDeletePeckUserDetails = [
             'gaijin_id' => $peckUser->gaijin_id,
-            'username' => $peckUser->username,
+            'username' => app(ResolveUsernames::class)->resolve([$peckUser->gaijin_id])[$peckUser->gaijin_id] ?? null,
             'status' => $peckUser->status,
             'discord_id' => $peckUser->discord_id,
-            'joindate' => $peckUser->joindate?->toDateTimeString(),
         ];
         $this->showDeletePeckUserModal = true;
         $this->dismissDeletePeckUserError();
@@ -707,6 +456,10 @@ new #[Title('Administration settings')] class extends Component {
     {
         abort_unless($this->canManageUserLevels(), 403);
 
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
+
         if (! is_int($this->pendingDeletePeckUserGaijinId)) {
             return;
         }
@@ -723,7 +476,7 @@ new #[Title('Administration settings')] class extends Component {
             }
 
             $peckUser->delete();
-        } catch (\Throwable $throwable) {
+        } catch (Throwable $throwable) {
             report($throwable);
 
             $this->showDeletePeckUserError = true;
@@ -748,6 +501,10 @@ new #[Title('Administration settings')] class extends Component {
     {
         abort_unless($this->canManageUserLevels(), 403);
 
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
+
         if ($this->hasApiKey) {
             $this->showConfirmApiKeyResetModal = true;
 
@@ -760,6 +517,10 @@ new #[Title('Administration settings')] class extends Component {
     public function confirmApiKeyReset(): void
     {
         abort_unless($this->canManageUserLevels(), 403);
+
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
 
         $this->showConfirmApiKeyResetModal = false;
         $this->generateApiKey();
@@ -828,13 +589,391 @@ new #[Title('Administration settings')] class extends Component {
             $this->showGeneratedApiKeyModal = true;
             $this->showApiKeyGenerationError = false;
             $this->hydrateApiKeyState();
-        } catch (\Throwable $throwable) {
+        } catch (Throwable $throwable) {
             report($throwable);
 
             $this->generatedApiToken = null;
             $this->showGeneratedApiKeyModal = false;
             $this->showApiKeyGenerationError = true;
         }
+    }
+    #endregion
+
+    #region Squadron ID lookup
+    #[Computed]
+    public function squadronIdConfigured(): bool
+    {
+        return filled((string) config('peck.squadron_id'));
+    }
+
+    #[Computed]
+    public function squadronLookupAvailable(): bool
+    {
+        $token = ThunderApiToken::query()->find(Auth::id());
+
+        if ($token instanceof ThunderApiToken && ! $token->isExpired()) {
+            return true;
+        }
+
+        return app(ServerThunderApi::class)->isConfigured();
+    }
+
+    #[Computed]
+    public function squadronLookupBlocked(): bool
+    {
+        return ! $this->squadronLookupAvailable || $this->squadronLookupFailed;
+    }
+
+    #[Computed]
+    public function squadronLookupBlockedMessage(): string
+    {
+        if (! $this->squadronLookupAvailable) {
+            return $this->squadronLookupUnavailableMessage();
+        }
+
+        return $this->squadronLookupErrorMessage !== ''
+            ? $this->squadronLookupErrorMessage
+            : __('ThunderAPI could not be reached.');
+    }
+
+    public function updatedSquadronLookupSearch(): void
+    {
+        $this->performSquadronSearch();
+    }
+
+    public function performSquadronSearch(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        $query = trim($this->squadronLookupSearch);
+
+        if ($query === '') {
+            $this->resetSquadronLookup();
+
+            return;
+        }
+
+        $this->squadronLookupLoading = true;
+        $this->squadronLookupFailed = false;
+        $this->squadronLookupErrorMessage = '';
+
+        try {
+            $token = $this->resolveSquadronLookupToken();
+        } catch (ThunderApiUnreachableException $exception) {
+            $this->failSquadronLookup($exception->getMessage());
+
+            return;
+        }
+
+        if ($token === null) {
+            $this->failSquadronLookup($this->squadronLookupUnavailableMessage());
+
+            return;
+        }
+
+        $results = $this->searchSquadrons($token, $query);
+
+        if ($results === null) {
+            return;
+        }
+
+        $this->squadronLookupResults = $this->normalizeSquadronLookupResults($results);
+        $this->squadronLookupSearched = true;
+        $this->squadronLookupLoading = false;
+    }
+
+    /**
+     * Resolve the token used for squadron lookups: the authenticated user's
+     * own ThunderAPI token first, then the server-wide login from the
+     * environment, then an error.
+     *
+     * @throws ThunderApiUnreachableException
+     */
+    protected function resolveSquadronLookupToken(): ?string
+    {
+        $token = ThunderApiToken::query()->find(Auth::id());
+
+        if ($token instanceof ThunderApiToken && ! $token->isExpired()) {
+            return $token->token;
+        }
+
+        $server = app(ServerThunderApi::class);
+
+        if (! $server->isConfigured()) {
+            return null;
+        }
+
+        try {
+            return $server->token();
+        } catch (ThunderApiUnreachableException) {
+            throw new ThunderApiUnreachableException('Unable to reach ThunderAPI. Please try again later.');
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Search squadrons with the given token, falling back to the next
+     * available token source when the token is rejected.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    protected function searchSquadrons(string $token, string $query): ?array
+    {
+        try {
+            return app(ThunderApi::class)->searchClans($token, $query);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $this->expireSquadronLookupToken($token);
+
+            try {
+                $fallbackToken = $this->resolveSquadronLookupToken();
+            } catch (ThunderApiUnreachableException $unreachableException) {
+                $this->failSquadronLookup($unreachableException->getMessage());
+
+                return null;
+            }
+
+            if ($fallbackToken === null || $fallbackToken === $token) {
+                $this->failSquadronLookup($exception->getMessage());
+
+                return null;
+            }
+
+            try {
+                return app(ThunderApi::class)->searchClans($fallbackToken, $query);
+            } catch (ThunderApiUnauthorizedException $fallbackException) {
+                $this->expireSquadronLookupToken($fallbackToken);
+                $this->failSquadronLookup($fallbackException->getMessage());
+            } catch (ThunderApiException $fallbackException) {
+                $this->failSquadronLookup($fallbackException->getMessage());
+            } catch (Throwable $throwable) {
+                report($throwable);
+                $this->failSquadronLookup(__('ThunderAPI could not be reached.'));
+            }
+
+            return null;
+        } catch (ThunderApiException $exception) {
+            $this->failSquadronLookup($exception->getMessage());
+
+            return null;
+        } catch (Throwable $throwable) {
+            report($throwable);
+            $this->failSquadronLookup(__('ThunderAPI could not be reached.'));
+
+            return null;
+        }
+    }
+
+    protected function expireSquadronLookupToken(string $token): void
+    {
+        ThunderApiServerToken::query()
+            ->where('token', $token)
+            ->update(['expires_at' => now()->subSecond()->timestamp]);
+
+        ThunderApiToken::query()
+            ->where('token', $token)
+            ->update(['expires_at' => now()->subSecond()->timestamp]);
+    }
+
+    protected function squadronLookupUnavailableMessage(): string
+    {
+        return __('This card is only available after connecting your ThunderAPI account on your profile or configuring a server-wide ThunderAPI login.');
+    }
+
+    protected function resetSquadronLookup(): void
+    {
+        $this->squadronLookupResults = [];
+        $this->squadronLookupSearched = false;
+        $this->squadronLookupFailed = false;
+        $this->squadronLookupErrorMessage = '';
+        $this->squadronLookupLoading = false;
+    }
+
+    protected function failSquadronLookup(string $message): void
+    {
+        $this->squadronLookupResults = [];
+        $this->squadronLookupSearched = false;
+        $this->squadronLookupFailed = true;
+        $this->squadronLookupErrorMessage = $message;
+        $this->squadronLookupLoading = false;
+    }
+
+    public function requestSquadronSelection(string $id): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        $selection = collect($this->squadronLookupResults)->firstWhere('_id', $id);
+
+        if (! is_array($selection)) {
+            return;
+        }
+
+        $this->pendingSquadronSelection = $selection;
+        $this->showSquadronSelectionModal = true;
+    }
+
+    public function cancelSquadronSelection(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        $this->showSquadronSelectionModal = false;
+        $this->pendingSquadronSelection = null;
+    }
+
+    public function confirmSquadronSelection(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
+
+        if (! is_array($this->pendingSquadronSelection)) {
+            return;
+        }
+
+        $id = trim((string) ($this->pendingSquadronSelection['_id'] ?? ''));
+
+        if ($id === '') {
+            $this->cancelSquadronSelection();
+
+            return;
+        }
+
+        app(UpdateEnvironmentFile::class)->set('SQUADRON_ID', $id);
+
+        config()->set('peck.squadron_id', $id);
+
+        $this->cancelSquadronSelection();
+        $this->squadronLookupResults = [];
+        $this->squadronLookupSearched = false;
+        $this->squadronLookupFailed = false;
+        $this->squadronLookupErrorMessage = '';
+        $this->dispatch('squadron-id-configured');
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $results
+     * @return list<array{_id:string,tag:string,name:string}>
+     */
+    protected function normalizeSquadronLookupResults(array $results): array
+    {
+        $normalized = [];
+
+        foreach ($results as $clan) {
+            if (! is_array($clan)) {
+                continue;
+            }
+
+            $id = trim((string) ($clan['_id'] ?? ''));
+
+            if ($id === '') {
+                continue;
+            }
+
+            $normalized[] = [
+                '_id' => $id,
+                'tag' => trim((string) ($clan['tag'] ?? '')),
+                'name' => trim((string) ($clan['name'] ?? '')),
+            ];
+        }
+
+        return $normalized;
+    }
+    #endregion
+
+    #region Force refresh
+    public function forceRefreshCooldownMinutes(): int
+    {
+        return max(1, (int) config('peck.force_refresh.cooldown_minutes', 10));
+    }
+
+    #[Computed]
+    public function forceRefreshCooldownSeconds(): int
+    {
+        $startedAt = Cache::get((string) config('peck.force_refresh.lock_key'));
+
+        if (! is_numeric($startedAt)) {
+            return 0;
+        }
+
+        return max(0, ($this->forceRefreshCooldownMinutes() * 60) - (now()->timestamp - (int) $startedAt));
+    }
+
+    #[Computed]
+    public function forceRefreshCooldownLabel(): string
+    {
+        $seconds = $this->forceRefreshCooldownSeconds();
+
+        if ($seconds <= 0) {
+            return '';
+        }
+
+        return sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
+    }
+
+    /**
+     * @return array{status:string,message:string}|null
+     */
+    #[Computed]
+    public function forceRefreshResult(): ?array
+    {
+        $result = Cache::get((string) config('peck.force_refresh.result_key'));
+
+        return is_array($result) ? $result : null;
+    }
+
+    public function requestForceRefresh(): void
+    {
+        abort_unless($this->canManageUserLevels(), 403);
+
+        if (! $this->ensureVerifiedForWrite()) {
+            return;
+        }
+
+        $this->forceRefreshError = null;
+
+        $lockKey = (string) config('peck.force_refresh.lock_key');
+        $resultKey = (string) config('peck.force_refresh.result_key');
+        $cooldownMinutes = $this->forceRefreshCooldownMinutes();
+        $now = now();
+
+        if (! Cache::add($lockKey, $now->timestamp, $now->copy()->addMinutes($cooldownMinutes))) {
+            $this->forceRefreshError = __('A refresh was started recently. Please try again in :time.', [
+                'time' => $this->forceRefreshCooldownLabel(),
+            ]);
+
+            return;
+        }
+
+        Cache::forget($resultKey);
+
+        $this->dispatch('force-refresh-started');
+
+        defer(function () use ($resultKey, $cooldownMinutes): void {
+            try {
+                $stats = app(RefreshPeckDB::class)->handle();
+
+                Cache::put($resultKey, [
+                    'status' => 'success',
+                    'message' => __('Refresh completed. :created users created, :members members received.', [
+                        'created' => $stats['users_created'],
+                        'members' => $stats['members_received'],
+                    ]),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::info('Manual PECK database refresh completed.', $stats);
+            } catch (Throwable $throwable) {
+                Cache::put($resultKey, [
+                    'status' => 'error',
+                    'message' => $throwable->getMessage(),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::error('Manual PECK database refresh failed.', [
+                    'message' => $throwable->getMessage(),
+                ]);
+            }
+        }, 'peck-force-refresh')->always();
     }
     #endregion
 };
@@ -864,7 +1003,12 @@ new #[Title('Administration settings')] class extends Component {
                     @if ($this->selectedManagedUser)
                         <div class="rounded-lg border border-neutral-200 p-3 dark:border-neutral-700">
                             <flux:heading size="sm">{{ $this->selectedManagedUser->name }}</flux:heading>
-                            <flux:text class="break-all text-xs">{{ $this->selectedManagedUser->email }}</flux:text>
+                            <flux:text class="break-all text-xs">
+                                {{ $this->selectedManagedUser->email }}
+                                @if (! $this->selectedManagedUser->hasVerifiedEmail())
+                                    <span class="font-medium text-amber-600 dark:text-amber-400">{{ __('(Unverified)') }}</span>
+                                @endif
+                            </flux:text>
                         </div>
                     @endif
 
@@ -902,65 +1046,6 @@ new #[Title('Administration settings')] class extends Component {
 
         <div class="mb-6 break-inside-avoid space-y-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/30">
             <div class="flex items-center gap-2">
-                <flux:heading size="lg">{{ __('Officer Ranks') }}</flux:heading>
-            </div>
-
-            <div class="space-y-4">
-                <flux:input wire:model.live.debounce.300ms="officerSearch" :label="__('Search by username or Gaijin ID')" />
-
-                <div class="overflow-x-auto">
-                    <table class="w-full min-w-full table-fixed divide-y divide-neutral-200 text-left text-sm dark:divide-neutral-700">
-                        <thead class="bg-neutral-100/70 text-xs uppercase tracking-wide text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                            <tr>
-                                <th class="px-3 py-2">{{ __('Gaijin ID') }}</th>
-                                <th class="px-3 py-2">{{ __('Username') }}</th>
-                                <th class="px-3 py-2">{{ __('Rank') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-neutral-100 dark:divide-neutral-800">
-                            @forelse ($this->officerRecords as $officerRecord)
-                                <tr wire:key="officer-row-{{ $officerRecord->gaijin_id }}">
-                                    <td class="px-3 py-2 font-medium">{{ $officerRecord->gaijin_id }}</td>
-                                    <td class="px-3 py-2">{{ $officerRecord->peckUser?->username ?? '—' }}</td>
-                                    <td class="px-3 py-2">
-                                        <select
-                                            wire:change="attemptOfficerRankUpdate({{ $officerRecord->gaijin_id }}, $event.target.value)"
-                                            class="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
-                                        >
-                                            <option value="" @selected($officerRecord->rank === null)>{{ __('Retired') }}</option>
-                                            <option value="officer" @selected($officerRecord->rank === 'officer')>{{ __('Officer') }}</option>
-                                            <option value="deputy" @selected($officerRecord->rank === 'deputy')>{{ __('Deputy') }}</option>
-                                            <option value="commander" @selected($officerRecord->rank === 'commander')>{{ __('Commander') }}</option>
-                                        </select>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="3" class="px-3 py-4 text-center text-neutral-500 dark:text-neutral-400">
-                                        {{ __('No officers found.') }}
-                                    </td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-
-                <div>
-                    {{ $this->officerRecords->links() }}
-                </div>
-
-                <flux:button type="button" variant="ghost" wire:click="openAddOfficerModal" class="w-full justify-center rounded-lg border border-dashed border-neutral-300 px-4 py-2 text-sm font-medium dark:border-neutral-700">
-                    {{ __('+ Add') }}
-                </flux:button>
-
-                <x-action-message class="me-3" on="officer-rank-updated">
-                    {{ __('Saved.') }}
-                </x-action-message>
-            </div>
-        </div>
-
-        <div class="mb-6 break-inside-avoid space-y-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/30">
-            <div class="flex items-center gap-2">
                 <flux:heading size="lg">{{ __('Delete user') }}</flux:heading>
             </div>
 
@@ -971,13 +1056,13 @@ new #[Title('Administration settings')] class extends Component {
                     <div class="max-h-56 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
                         @forelse ($this->filteredPeckUsersForDeletion as $filteredPeckUser)
                             <div wire:key="delete-peck-user-row-{{ $filteredPeckUser->gaijin_id }}" class="flex items-center justify-between gap-3 px-3 py-2">
-                                <flux:text>{{ $filteredPeckUser->username }}</flux:text>
+                                <flux:text>{{ $filteredPeckUser->username ?? '—' }}</flux:text>
 
                                 <button
                                     type="button"
                                     wire:click="openDeletePeckUserModal({{ $filteredPeckUser->gaijin_id }})"
                                     class="rounded-md p-2 text-neutral-500 transition hover:bg-red-50 hover:text-red-600 dark:text-neutral-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
-                                    aria-label="{{ __('Delete :username', ['username' => $filteredPeckUser->username]) }}"
+                                    aria-label="{{ __('Delete :username', ['username' => $filteredPeckUser->username ?? '—']) }}"
                                 >
                                     <flux:icon.trash class="size-4" />
                                 </button>
@@ -1024,88 +1109,101 @@ new #[Title('Administration settings')] class extends Component {
                 </div>
             </div>
         </div>
+
+        <div class="mb-6 break-inside-avoid space-y-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/30">
+            <div class="flex items-center gap-2">
+                <flux:heading size="lg">{{ __('Force Refresh') }}</flux:heading>
+            </div>
+
+            <flux:text>{{ __('Re-sync the PECK database from ThunderAPI. Can only be triggered once every :minutes minutes.', ['minutes' => $this->forceRefreshCooldownMinutes()]) }}</flux:text>
+
+            <flux:button type="button" variant="primary" wire:click="requestForceRefresh" wire:loading.attr="disabled" wire:target="requestForceRefresh">
+                {{ __('Force refresh') }}
+            </flux:button>
+
+            @if ($this->forceRefreshCooldownSeconds > 0)
+                <flux:text class="text-sm text-neutral-500 dark:text-neutral-400">
+                    {{ __('Refresh available in :time.', ['time' => $this->forceRefreshCooldownLabel]) }}
+                </flux:text>
+            @endif
+
+            @if ($forceRefreshError)
+                <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100">
+                    {{ $forceRefreshError }}
+                </div>
+            @endif
+
+            @if ($this->forceRefreshResult)
+                @if ($this->forceRefreshResult['status'] === 'success')
+                    <div class="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/40 dark:text-green-100">
+                        {{ $this->forceRefreshResult['message'] }}
+                    </div>
+                @else
+                    <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/40 dark:text-red-100">
+                        {{ $this->forceRefreshResult['message'] }}
+                    </div>
+                @endif
+            @endif
+
+            <x-action-message class="me-3" on="force-refresh-started">
+                {{ __('Refresh started.') }}
+            </x-action-message>
         </div>
 
-        <flux:modal wire:model="showAddOfficerModal" class="max-w-2xl">
-            <form wire:submit="createOfficer" class="space-y-6">
-                <div>
-                    <flux:heading size="lg">{{ __('Add Officer Entry') }}</flux:heading>
-                    <flux:subheading>
-                        {{ __('Create a new officer record from an existing user.') }}
-                    </flux:subheading>
+        @if (! $this->squadronIdConfigured)
+        <div class="mb-6 break-inside-avoid space-y-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-neutral-700 dark:bg-neutral-900/30">
+            <div class="relative">
+                <div class="flex items-center gap-2">
+                    <flux:heading size="lg">{{ __('Squadron ID Lookup') }}</flux:heading>
                 </div>
 
-                <div class="grid gap-4 md:grid-cols-2">
-                    <flux:select wire:model="newOfficerForm.gaijin_id" :label="__('User')" required>
-                        <option value="">{{ __('Select a user') }}</option>
-                        @foreach ($this->officerSelectableUsers as $officerSelectableUser)
-                            <option value="{{ $officerSelectableUser->gaijin_id }}">
-                                {{ $officerSelectableUser->username }} ({{ $officerSelectableUser->gaijin_id }})
-                            </option>
-                        @endforeach
-                    </flux:select>
+                <flux:subheading class="mt-1">
+                    {{ __('Initialize Squadron ID value. This will be used for future lookup requests across the site. Only has to be set up once.') }}
+                </flux:subheading>
 
-                    <flux:select wire:model="newOfficerForm.rank" :label="__('Rank')">
-                        <option value="">{{ __('Retired') }}</option>
-                        <option value="officer">{{ __('Officer') }}</option>
-                        <option value="deputy">{{ __('Deputy') }}</option>
-                        <option value="commander">{{ __('Commander') }}</option>
-                    </flux:select>
+                <div class="mt-4 space-y-3">
+                    <flux:input wire:model.live.debounce.1000ms="squadronLookupSearch" :label="__('Search squadrons')" />
+
+                    @if ($squadronLookupLoading)
+                        <div class="px-3 py-4 text-center text-sm text-neutral-500 dark:text-neutral-400">
+                            {{ __('Searching…') }}
+                        </div>
+                    @elseif ($squadronLookupSearched && $squadronLookupResults === [])
+                        <div class="rounded-lg border border-neutral-200 px-3 py-4 text-center text-sm text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+                            {{ __('No squadron could be found with this search. Try refining your search query.') }}
+                        </div>
+                    @else
+                        <div class="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
+                            <div class="max-h-56 overflow-y-auto divide-y divide-neutral-100 dark:divide-neutral-800">
+                                @forelse ($squadronLookupResults as $squadronLookupResult)
+                                    <div wire:key="squadron-lookup-result-{{ $squadronLookupResult['_id'] }}" class="flex items-center justify-between gap-3 px-3 py-2">
+                                        <flux:text>{{ $squadronLookupResult['_id'] }} <span class="wt-glyphs">{{ $squadronLookupResult['tag'] }}</span> {{ $squadronLookupResult['name'] }}</flux:text>
+
+                                        <flux:button type="button" variant="primary" size="sm" wire:click="requestSquadronSelection('{{ $squadronLookupResult['_id'] }}')">
+                                            {{ __('Select') }}
+                                        </flux:button>
+                                    </div>
+                                @empty
+                                    <div class="px-3 py-4 text-center text-sm text-neutral-500 dark:text-neutral-400">
+                                        {{ __('No results.') }}
+                                    </div>
+                                @endforelse
+                            </div>
+                        </div>
+                    @endif
                 </div>
 
-                <div class="flex flex-wrap items-center justify-end gap-3">
-                    <flux:modal.close>
-                        <flux:button type="button" variant="ghost" wire:click="closeAddOfficerModal">
-                            {{ __('Cancel') }}
-                        </flux:button>
-                    </flux:modal.close>
-
-                    <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="createOfficer">
-                        {{ __('Save') }}
-                    </flux:button>
-                </div>
-            </form>
-        </flux:modal>
-
-        <flux:modal wire:model="showRankSwitchModal" class="max-w-xl">
-            <div class="space-y-6">
-                <div>
-                    <flux:heading size="lg">{{ __('Switch rank assignment?') }}</flux:heading>
-                    <flux:subheading>
-                        {{ __('Only one deputy and one commander are allowed at a time.') }}
-                    </flux:subheading>
-                </div>
-
-                <div class="rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
-                    <flux:text>
-                        {{ __('Assign :requestedRank to :targetUser (:targetGaijinId).', [
-                            'requestedRank' => $this->officerRankLabel($pendingRankTargetRequestedRank),
-                            'targetUser' => $pendingRankTargetUsername ?? __('Unknown user'),
-                            'targetGaijinId' => $pendingRankTargetGaijinId ?? '—',
-                        ]) }}
-                    </flux:text>
-                    <flux:text class="mt-2">
-                        {{ __('Then :conflictingUser (:conflictingGaijinId) will become :replacementRank.', [
-                            'conflictingUser' => $pendingRankConflictingUsername ?? __('Unknown user'),
-                            'conflictingGaijinId' => $pendingRankConflictingGaijinId ?? '—',
-                            'replacementRank' => $pendingRankReplacementLabel,
-                        ]) }}
-                    </flux:text>
-                </div>
-
-                <div class="flex flex-wrap items-center justify-end gap-3">
-                    <flux:modal.close>
-                        <flux:button type="button" variant="ghost" wire:click="cancelOfficerRankSwitch">
-                            {{ __('Cancel') }}
-                        </flux:button>
-                    </flux:modal.close>
-
-                    <flux:button type="button" variant="primary" wire:click="confirmOfficerRankSwitch" wire:loading.attr="disabled" wire:target="confirmOfficerRankSwitch">
-                        {{ __('Switch Rank') }}
-                    </flux:button>
-                </div>
+                @if ($this->squadronLookupBlocked)
+                    <div class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-white/60 p-4 backdrop-blur-sm dark:bg-neutral-900/60">
+                        <flux:text class="max-w-sm text-center font-medium">
+                            {{ $this->squadronLookupBlockedMessage }}
+                        </flux:text>
+                    </div>
+                @endif
             </div>
-        </flux:modal>
+        </div>
+        @endif
+        </div>
 
         <flux:modal wire:model="showConfirmManagedUserDeletionModal" class="max-w-xl">
             <div class="space-y-6">
@@ -1148,10 +1246,8 @@ new #[Title('Administration settings')] class extends Component {
 
                 <div class="space-y-1 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
                     <flux:text>{{ __('Username: :username', ['username' => $pendingDeletePeckUserDetails['username'] ?? '—']) }}</flux:text>
-                    <flux:text>{{ __('Gaijin ID: :gaijinId', ['gaijinId' => $pendingDeletePeckUserDetails['gaijin_id'] ?? '—']) }}</flux:text>
                     <flux:text>{{ __('Status: :status', ['status' => $pendingDeletePeckUserDetails['status'] ?? '—']) }}</flux:text>
                     <flux:text>{{ __('Discord ID: :discordId', ['discordId' => $pendingDeletePeckUserDetails['discord_id'] ?? '—']) }}</flux:text>
-                    <flux:text>{{ __('Join date: :joinDate', ['joinDate' => $pendingDeletePeckUserDetails['joindate'] ?? '—']) }}</flux:text>
                 </div>
 
                 <div class="flex flex-wrap items-center justify-end gap-3">
@@ -1220,6 +1316,58 @@ new #[Title('Administration settings')] class extends Component {
 
                     <flux:button type="button" variant="primary" wire:click="copyGeneratedApiKey" :disabled="! filled($generatedApiToken)">
                         {{ __('Copy key') }}
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
+
+        <flux:modal wire:model="showSquadronSelectionModal" class="max-w-xl">
+            <div class="space-y-6">
+                <div>
+                    <flux:heading size="lg">{{ __('Confirm squadron selection') }}</flux:heading>
+                    <flux:subheading>
+                        {{ __('Are you sure this is the right squadron?') }}
+                    </flux:subheading>
+                </div>
+
+                <div class="space-y-1 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm dark:border-neutral-700 dark:bg-neutral-900/40">
+                    <flux:text>{{ __('Squadron ID: :id', ['id' => $pendingSquadronSelection['_id'] ?? '—']) }}</flux:text>
+                    <flux:text>{{ __('Tag:') }} <span class="wt-glyphs">{{ $pendingSquadronSelection['tag'] ?? '—' }}</span></flux:text>
+                    <flux:text>{{ __('Name: :name', ['name' => $pendingSquadronSelection['name'] ?? '—']) }}</flux:text>
+                </div>
+
+                <div class="flex flex-wrap items-center justify-end gap-3">
+                    <flux:modal.close>
+                        <flux:button type="button" variant="ghost" wire:click="cancelSquadronSelection">
+                            {{ __('Cancel') }}
+                        </flux:button>
+                    </flux:modal.close>
+
+                    <flux:button type="button" variant="primary" wire:click="confirmSquadronSelection" wire:loading.attr="disabled" wire:target="confirmSquadronSelection">
+                        {{ __('Confirm') }}
+                    </flux:button>
+                </div>
+            </div>
+        </flux:modal>
+
+        <flux:modal wire:model="showVerificationRequiredModal" class="max-w-md">
+            <div class="space-y-6">
+                <div>
+                    <flux:heading size="lg">{{ __('Email verification required') }}</flux:heading>
+                    <flux:text class="mt-2">
+                        {{ __('You must verify your email address before you can make changes.') }}
+                    </flux:text>
+                </div>
+
+                <div class="flex items-center justify-end gap-3">
+                    <flux:modal.close>
+                        <flux:button type="button" variant="ghost" wire:click="dismissVerificationRequiredModal">
+                            {{ __('Close') }}
+                        </flux:button>
+                    </flux:modal.close>
+
+                    <flux:button type="button" variant="primary" :href="route('profile.edit')" wire:navigate>
+                        {{ __('Verify email') }}
                     </flux:button>
                 </div>
             </div>

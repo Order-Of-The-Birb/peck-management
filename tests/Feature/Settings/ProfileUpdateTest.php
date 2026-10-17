@@ -1,6 +1,8 @@
 <?php
 
 use App\Models\User;
+use App\Notifications\VerifyEmailNotification;
+use Illuminate\Support\Facades\Notification;
 use Livewire\Livewire;
 
 test('profile page is displayed', function () {
@@ -10,6 +12,8 @@ test('profile page is displayed', function () {
 });
 
 test('profile information can be updated', function () {
+    Notification::fake();
+
     $user = User::factory()->create();
 
     $this->actingAs($user);
@@ -26,6 +30,8 @@ test('profile information can be updated', function () {
     expect($user->name)->toEqual('Test User');
     expect($user->email)->toEqual('test@example.com');
     expect($user->email_verified_at)->toBeNull();
+
+    Notification::assertSentTo($user, VerifyEmailNotification::class);
 });
 
 test('email verification status is unchanged when email address is unchanged', function () {

@@ -2,24 +2,57 @@
 
 namespace App\Livewire;
 
-use App\Models\Officer;
+use App\Actions\RefreshPeckDB;
+use App\Actions\ResolveSquadronRoster;
+use App\Actions\ResolveUsernames;
+use App\Actions\ServerThunderApi;
+use App\Actions\ThunderApi;
+use App\Actions\ThunderApiException;
+use App\Actions\ThunderApiUnauthorizedException;
 use App\Models\PeckAlt;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
-use Closure;
+use App\Models\ThunderApiToken;
+use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Throwable;
 
+use function Illuminate\Support\defer;
+
 class PeckUsersDashboard extends Component
 {
     use WithPagination;
+
+    public const ROLE_PRIVATE = 'Private';
+
+    public const ROLE_SERGEANT = 'Sergeant';
+
+    public const ROLE_OFFICER = 'Officer';
+
+    public const ROLE_DEPUTY = 'Deputy';
+
+    public const ROLE_COMMANDER = 'Commander';
+
+    /**
+     * Squadron roles that grant write access to the member database.
+     *
+     * @var list<string>
+     */
+    public const ADMIN_ROLES = [
+        self::ROLE_OFFICER,
+        self::ROLE_DEPUTY,
+        self::ROLE_COMMANDER,
+    ];
 
     public string $search = '';
 
@@ -27,46 +60,28 @@ class PeckUsersDashboard extends Component
 
     public string $sortDirection = 'asc';
 
-    public bool $showEditModal = false;
+    public string $section = 'members';
 
-    public bool $showCreateUserModal = false;
+    public bool $showMemberModal = false;
 
-    public ?int $selectedGaijinId = null;
+    public ?int $selectedMemberGaijinId = null;
 
-    public bool $showFilterModal = false;
+    public string $memberTab = 'member';
 
-    public string $section = 'users';
+    public bool $memberEditMode = false;
 
-    public string $altSearch = '';
-
-    public string $contextSearch = '';
-
-    public bool $showMasterEditModal = false;
-
-    public bool $showAddSlaveModal = false;
-
-    public ?int $editingMasterGaijinId = null;
-
-    public ?string $altFormMasterGaijinId = null;
+    public string $ownerSearch = '';
 
     /**
-     * @var list<int>
+     * @var array{gaijin_id:?string,discord_id:?string,tz:?string,sqb_part:bool,owner:?string}
      */
-    public array $altFormSlaveGaijinIds = [];
-
-    public ?string $newSlaveGaijinId = null;
-
-    public bool $showAltSaveError = false;
-
-    public string $altSaveErrorMessage = '';
-
-    public bool $showContextModal = false;
-
-    public ?int $selectedContextGaijinId = null;
-
-    public ?string $selectedContextUsername = null;
-
-    public bool $contextShowExpiredAbsences = false;
+    public array $memberForm = [
+        'gaijin_id' => null,
+        'discord_id' => null,
+        'tz' => null,
+        'sqb_part' => false,
+        'owner' => null,
+    ];
 
     public bool $showAddContextForm = false;
 
@@ -82,78 +97,65 @@ class PeckUsersDashboard extends Component
         'comment' => '',
     ];
 
-    public bool $showLeaveInfoModal = false;
+    public bool $showContextEntryModal = false;
 
-    public ?int $selectedLeaveInfoGaijinId = null;
+    public ?int $selectedContextEntryId = null;
 
-    public ?string $selectedLeaveInfoUsername = null;
+    public bool $contextEntryEditMode = false;
 
-    public bool $leaveInfoModalFromStatusChange = false;
+    public string $contextEntryComment = '';
 
-    /**
-     * @var array{gaijin_id:string,username:string,status:string,discord_id:string,joindate:string,current_leave_info:string}
-     */
-    public array $selectedLeaveInfoUserDetails = [
-        'gaijin_id' => '',
-        'username' => '',
-        'status' => '',
-        'discord_id' => '',
-        'joindate' => '',
-        'current_leave_info' => '',
-    ];
+    public bool $showKickConfirmModal = false;
 
-    /**
-     * @var array{type:string}
-     */
-    public array $leaveInfoForm = [
-        'type' => PeckLeaveInfo::TYPE_LEFT,
-    ];
+    public string $kickReason = '';
+
+    public ?string $manageRole = null;
+
+    public string $manageActionError = '';
+
+    public bool $showVerificationRequiredModal = false;
+
+    public bool $thunderPromptDismissed = false;
+
+    public bool $thunderApiError = false;
+
+    public bool $thunderApiErrorDismissed = false;
 
     /**
-     * @var array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
+     * @var list<array{action_label:string,actor:?string,datetime:?string,details:list<array{label:?string,value:string,glyphs:bool}>}>
      */
-    public array $filters = [
-        'status' => null,
-        'tz' => null,
-        'joined_after' => null,
-        'joined_before' => null,
-    ];
+    public array $squadronLogs = [];
+
+    public ?string $squadronLogsLastLog = null;
+
+    public bool $squadronLogsLoading = false;
+
+    public bool $squadronLogsFailed = false;
+
+    public string $squadronLogsErrorMessage = '';
+
+    public bool $squadronLogsHasMore = false;
 
     /**
-     * @var array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
+     * @var list<array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}>
      */
-    public array $filterForm = [
-        'status' => null,
-        'tz' => null,
-        'joined_after' => null,
-        'joined_before' => null,
-    ];
+    public array $squadronApplicants = [];
 
-    /**
-     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
-     */
-    public array $form = [
-        'gaijin_id' => null,
-        'username' => '',
-        'discord_id' => null,
-        'tz' => '0',
-        'status' => 'member',
-        'joindate' => null,
-        'initiator' => null,
-    ];
+    public bool $squadronApplicantsLoading = false;
 
-    /**
-     * @var array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
-     */
-    public array $newUserForm = [
-        'gaijin_id' => null,
-        'username' => '',
-        'discord_id' => null,
-        'tz' => '0',
-        'status' => 'member',
-        'joindate' => null,
-        'initiator' => null,
-    ];
+    public bool $squadronApplicantsFailed = false;
+
+    public string $squadronApplicantsErrorMessage = '';
+
+    public bool $showApplicantModal = false;
+
+    public ?string $selectedApplicantUid = null;
+
+    public bool $showRejectApplicantModal = false;
+
+    public string $rejectApplicantReason = '';
+
+    public string $applicantActionError = '';
 
     /**
      * @var array<string, array<string, bool|string>>
@@ -162,14 +164,35 @@ class PeckUsersDashboard extends Component
         'search' => ['except' => ''],
         'sortBy' => ['except' => 'gaijin_id'],
         'sortDirection' => ['except' => 'asc'],
-        'altSearch' => ['except' => ''],
-        'contextSearch' => ['except' => ''],
     ];
 
-    public function mount(string $section = 'users'): void
+    private ?string $resolvedThunderRole = null;
+
+    private bool $thunderRoleResolved = false;
+
+    /**
+     * @var array<string, mixed>|null
+     */
+    private ?array $resolvedThunderSelf = null;
+
+    private bool $thunderSelfResolved = false;
+
+    private ?string $resolvedEffectiveThunderToken = null;
+
+    private bool $effectiveThunderTokenResolved = false;
+
+    public function mount(string $section = 'members'): void
     {
-        if (in_array($section, ['users', 'leave_info', 'alts', 'context'], true)) {
+        if (in_array($section, ['members', 'squadron_logs', 'squadron_applications'], true)) {
             $this->section = $section;
+        }
+
+        if ($this->section === 'squadron_logs') {
+            $this->loadSquadronLogs();
+        }
+
+        if ($this->section === 'squadron_applications') {
+            $this->loadSquadronApplicants();
         }
     }
 
@@ -178,107 +201,115 @@ class PeckUsersDashboard extends Component
         $this->resetPage();
     }
 
-    public function updatingAltSearch(): void
+    /**
+     * Resolve nicknames for every stored member so the local member database
+     * can be searched by username.
+     *
+     * @return array<int, string>
+     */
+    protected function resolveAllMemberUsernames(?bool &$unreachable = null): array
     {
-        $this->resetPage('alt-masters-page');
-    }
+        $gaijinIds = PeckUser::query()
+            ->pluck('gaijin_id')
+            ->map(fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
 
-    public function updatingContextSearch(): void
-    {
-        $this->resetPage('context-users-page');
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        return app(ResolveUsernames::class)->resolve($gaijinIds, $this->effectiveThunderToken(), $unreachable);
     }
 
     /**
-     * @return array{status:?string,tz:?int,joined_after:?string,joined_before:?string}
+     * Return the Gaijin IDs whose resolved nickname contains the search term.
+     *
+     * @param  array<int, string>|null  $usernames
+     * @return list<int>
      */
-    protected function blankFilterForm(): array
+    protected function matchingUsernameIds(?array $usernames, string $term): array
     {
-        return [
-            'status' => null,
-            'tz' => null,
-            'joined_before' => null,
-            'joined_after' => null,
-        ];
+        if ($usernames === null || $usernames === []) {
+            return [];
+        }
+
+        $term = mb_strtolower($term);
+
+        $matches = [];
+
+        foreach ($usernames as $gaijinId => $nickname) {
+            if (is_string($nickname) && str_contains(mb_strtolower($nickname), $term)) {
+                $matches[] = (int) $gaijinId;
+            }
+        }
+
+        return $matches;
     }
 
-    public function openFilterModal(): void
+    public function partialRefreshCooldownMinutes(): int
     {
-        $this->filterForm = $this->filters;
-        $this->showFilterModal = true;
-        $this->resetValidation();
+        return max(1, (int) config('peck.partial_refresh.cooldown_minutes', 5));
     }
 
-    public function closeFilterModal(): void
+    public function partialRefreshCooldownSeconds(): int
     {
-        $this->filterForm = $this->filters;
-        $this->showFilterModal = false;
-        $this->resetValidation();
+        $startedAt = Cache::get((string) config('peck.partial_refresh.lock_key'));
+
+        if (! is_numeric($startedAt)) {
+            return 0;
+        }
+
+        return max(0, ($this->partialRefreshCooldownMinutes() * 60) - (now()->timestamp - (int) $startedAt));
     }
 
-    public function applyFilters(): void
+    public function canPartialRefresh(): bool
     {
-        $validated = $this->validate($this->filterRules());
-        $validatedFilters = $validated['filterForm'];
-        $validatedFilters['tz'] = $this->nullableInteger($validatedFilters['tz']);
+        $user = auth()->user();
 
-        $this->filters = $validatedFilters;
-        $this->showFilterModal = false;
-        $this->resetPage();
+        return $user instanceof User && $user->canWrite();
     }
 
-    public function resetFilters(): void
+    public function requestPartialRefresh(): void
     {
-        $blankFilters = $this->blankFilterForm();
+        abort_unless($this->canPartialRefresh(), 403);
 
-        $this->filters = $blankFilters;
-        $this->filterForm = $blankFilters;
-        $this->showFilterModal = false;
-        $this->resetValidation();
-        $this->resetPage();
-    }
+        $lockKey = (string) config('peck.partial_refresh.lock_key');
+        $resultKey = (string) config('peck.partial_refresh.result_key');
+        $cooldownMinutes = $this->partialRefreshCooldownMinutes();
+        $now = now();
 
-    public function activeFilterCount(): int
-    {
-        return collect($this->filters)
-            ->filter(fn (mixed $value): bool => $value !== null && $value !== '')
-            ->count();
-    }
+        if (! Cache::add($lockKey, $now->timestamp, $now->copy()->addMinutes($cooldownMinutes))) {
+            return;
+        }
 
-    /**
-     * @return list<string>
-     */
-    public function filterableStatuses(): array
-    {
-        return PeckUser::STATUSES;
-    }
+        Cache::forget($resultKey);
 
-    /**
-     * @return array<string, list<mixed>>
-     */
-    protected function filterRules(): array
-    {
-        return [
-            'filterForm.status' => [
-                'nullable',
-                'string',
-                Rule::in($this->filterableStatuses()),
-            ],
-            'filterForm.tz' => [
-                'nullable',
-                'integer',
-                'between:-11,12',
-            ],
-            'filterForm.joined_after' => [
-                'nullable',
-                'date_format:Y-m-d',
-                'before_or_equal:filterForm.joined_before',
-            ],
-            'filterForm.joined_before' => [
-                'nullable',
-                'date_format:Y-m-d',
-                'after_or_equal:filterForm.joined_after',
-            ],
-        ];
+        $this->dispatch('partial-refresh-cooldown-started', ['seconds' => $cooldownMinutes * 60]);
+
+        defer(function () use ($resultKey, $cooldownMinutes): void {
+            try {
+                $stats = app(RefreshPeckDB::class)->handle();
+
+                Cache::put($resultKey, [
+                    'status' => 'success',
+                    'message' => __('Refresh completed. :created users created.', [
+                        'created' => $stats['users_created'],
+                    ]),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::info('Manual partial PECK database refresh completed.', $stats);
+            } catch (Throwable $throwable) {
+                Cache::put($resultKey, [
+                    'status' => 'error',
+                    'message' => $throwable->getMessage(),
+                ], now()->addMinutes($cooldownMinutes));
+
+                Log::error('Manual partial PECK database refresh failed.', [
+                    'message' => $throwable->getMessage(),
+                ]);
+            }
+        }, 'peck-partial-refresh')->always();
     }
 
     public function sort(string $column): void
@@ -309,12 +340,10 @@ class PeckUsersDashboard extends Component
     {
         return [
             'gaijin_id',
+            'discord_id',
             'username',
             'status',
-            'discord_id',
-            'tz',
-            'joindate',
-            'initiator',
+            'join_date',
         ];
     }
 
@@ -323,90 +352,24 @@ class PeckUsersDashboard extends Component
         return in_array($column, $this->sortableColumns(), true);
     }
 
-    public function openCreateUserModal(): void
+    public function isMembersSection(): bool
     {
-        $this->ensureCanEdit();
-
-        $this->newUserForm = $this->blankUserForm();
-        $this->showCreateUserModal = true;
-        $this->resetValidation();
+        return $this->section === 'members';
     }
 
-    public function closeCreateUserModal(): void
+    public function isSquadronLogsSection(): bool
     {
-        $this->ensureCanEdit();
-
-        $this->showCreateUserModal = false;
-        $this->newUserForm = $this->blankUserForm();
-        $this->resetValidation();
+        return $this->section === 'squadron_logs';
     }
 
-    public function createUser(): void
+    public function isSquadronApplicationsSection(): bool
     {
-        $this->ensureCanEdit();
-
-        $validated = $this->validate($this->createUserRules());
-
-        PeckUser::query()->create([
-            'gaijin_id' => (int) $validated['newUserForm']['gaijin_id'],
-            'username' => $validated['newUserForm']['username'],
-            'discord_id' => $this->nullableInteger($validated['newUserForm']['discord_id']),
-            'tz' => $this->nullableInteger($validated['newUserForm']['tz']),
-            'status' => $validated['newUserForm']['status'],
-            'joindate' => $validated['newUserForm']['joindate'],
-            'initiator' => $this->nullableInteger($validated['newUserForm']['initiator']),
-        ]);
-
-        $this->dispatch('peck-user-created');
-        $this->closeCreateUserModal();
-        $this->clearSelection();
-        $this->resetPage();
+        return $this->section === 'squadron_applications';
     }
 
-    protected function ensureCanEdit(): void
+    public function isSquadronSection(): bool
     {
-        abort_unless($this->canEdit(), 403);
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function editableStatuses(): array
-    {
-        return PeckUser::DASHBOARD_EDITABLE_STATUSES;
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function leaveInfoTypes(): array
-    {
-        return PeckLeaveInfo::TYPES;
-    }
-
-    public function canEdit(): bool
-    {
-        return auth()->check() && (int) auth()->user()->level >= 1;
-    }
-
-    public function isUsersSection(): bool
-    {
-        return $this->section === 'users';
-    }
-
-    public function isLeaveInfoSection(): bool
-    {
-        return $this->section === 'leave_info';
-    }
-
-    public function isAltsSection(): bool
-    {
-        return $this->section === 'alts';
-    }
-
-    public function isContextSection(): bool
-    {
-        return $this->section === 'context';
+        return in_array($this->section, ['squadron_logs', 'squadron_applications'], true);
     }
 
     /**
@@ -417,414 +380,453 @@ class PeckUsersDashboard extends Component
         return PeckUserContext::TYPES;
     }
 
-    public function availableMasterUsers(): Collection
+    /**
+     * @return list<string>
+     */
+    public function assignableRoles(): array
     {
-        $selectedMasterGaijinId = $this->nullableInteger($this->altFormMasterGaijinId);
-        $assignedSlaveGaijinIds = PeckAlt::query()
-            ->pluck('alt_id')
-            ->map(fn (mixed $altId): int => (int) $altId)
-            ->values()
-            ->all();
-
-        return PeckUser::query()
-            ->when($assignedSlaveGaijinIds !== [], function (Builder $query) use ($assignedSlaveGaijinIds, $selectedMasterGaijinId): void {
-                $query->where(function (Builder $innerQuery) use ($assignedSlaveGaijinIds, $selectedMasterGaijinId): void {
-                    $innerQuery->whereNotIn('gaijin_id', $assignedSlaveGaijinIds);
-
-                    if ($selectedMasterGaijinId !== null) {
-                        $innerQuery->orWhere('gaijin_id', $selectedMasterGaijinId);
-                    }
-                });
-            })
-            ->orderBy('username')
-            ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+        return [
+            self::ROLE_PRIVATE,
+            self::ROLE_SERGEANT,
+            self::ROLE_OFFICER,
+            self::ROLE_DEPUTY,
+            self::ROLE_COMMANDER,
+        ];
     }
 
-    public function availableSlaveUsers(): Collection
+    public function thunderRole(): ?string
     {
-        $selectedMasterGaijinId = $this->nullableInteger($this->altFormMasterGaijinId);
-        $currentSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
-            ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
-            ->values()
-            ->all();
-
-        $assignedSlaveQuery = PeckAlt::query()->select('alt_id');
-        $existingMasterQuery = PeckAlt::query()->select('owner_id')->distinct();
-
-        if ($this->editingMasterGaijinId !== null) {
-            $assignedSlaveQuery->where('owner_id', '!=', $this->editingMasterGaijinId);
-            $existingMasterQuery->where('owner_id', '!=', $this->editingMasterGaijinId);
+        if ($this->thunderRoleResolved) {
+            return $this->resolvedThunderRole;
         }
 
-        $assignedSlaveGaijinIds = $assignedSlaveQuery
-            ->pluck('alt_id')
-            ->map(fn (mixed $altId): int => (int) $altId)
-            ->values()
-            ->all();
+        $this->thunderRoleResolved = true;
+        $this->resolvedThunderRole = $this->resolveThunderRole();
 
-        $existingMasterGaijinIds = $existingMasterQuery
-            ->pluck('owner_id')
-            ->map(fn (mixed $ownerId): int => (int) $ownerId)
-            ->values()
-            ->all();
-
-        $excludedGaijinIds = collect([
-            $selectedMasterGaijinId,
-            ...$currentSlaveGaijinIds,
-            ...$assignedSlaveGaijinIds,
-            ...$existingMasterGaijinIds,
-        ])
-            ->filter(fn (mixed $gaijinId): bool => $gaijinId !== null)
-            ->map(fn (mixed $gaijinId): int => (int) $gaijinId)
-            ->unique()
-            ->values()
-            ->all();
-
-        return PeckUser::query()
-            ->when($excludedGaijinIds !== [], function (Builder $query) use ($excludedGaijinIds): void {
-                $query->whereNotIn('gaijin_id', $excludedGaijinIds);
-            })
-            ->orderBy('username')
-            ->orderBy('gaijin_id')
-            ->get(['gaijin_id', 'username']);
+        return $this->resolvedThunderRole;
     }
 
-    public function openCreateMasterModal(): void
+    protected function resolveThunderRole(): ?string
     {
-        $this->ensureCanEdit();
+        $self = $this->thunderSelf();
 
-        $this->editingMasterGaijinId = null;
-        $this->altFormMasterGaijinId = null;
-        $this->altFormSlaveGaijinIds = [];
-        $this->newSlaveGaijinId = null;
-        $this->showAddSlaveModal = false;
-        $this->showMasterEditModal = true;
-        $this->dismissAltSaveError();
-        $this->resetValidation();
+        if ($self === null) {
+            return null;
+        }
+
+        $role = $self['squadron']['user']['role']['name'] ?? null;
+
+        return is_string($role) && $role !== '' ? $role : null;
     }
 
-    public function openEditMasterModal(int $masterGaijinId): void
+    /**
+     * Fetch the authenticated user's own ThunderAPI profile, memoized per request.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function thunderSelf(): ?array
     {
-        $this->ensureCanEdit();
-
-        $this->editingMasterGaijinId = $masterGaijinId;
-        $this->altFormMasterGaijinId = (string) $masterGaijinId;
-        $this->altFormSlaveGaijinIds = PeckAlt::query()
-            ->where('owner_id', $masterGaijinId)
-            ->orderBy('alt_id')
-            ->pluck('alt_id')
-            ->map(fn (mixed $altId): int => (int) $altId)
-            ->values()
-            ->all();
-        $this->newSlaveGaijinId = null;
-        $this->showAddSlaveModal = false;
-        $this->showMasterEditModal = true;
-        $this->dismissAltSaveError();
-        $this->resetValidation();
-    }
-
-    public function closeMasterEditModal(): void
-    {
-        $this->ensureCanEdit();
-
-        $this->showMasterEditModal = false;
-        $this->showAddSlaveModal = false;
-        $this->editingMasterGaijinId = null;
-        $this->altFormMasterGaijinId = null;
-        $this->altFormSlaveGaijinIds = [];
-        $this->newSlaveGaijinId = null;
-        $this->dismissAltSaveError();
-        $this->resetValidation();
-    }
-
-    public function updatedAltFormMasterGaijinId(?string $altFormMasterGaijinId): void
-    {
-        $selectedMasterGaijinId = $this->nullableInteger($altFormMasterGaijinId);
-
-        if ($selectedMasterGaijinId === null) {
-            $this->editingMasterGaijinId = null;
-            $this->altFormSlaveGaijinIds = [];
-
-            return;
+        if ($this->thunderSelfResolved) {
+            return $this->resolvedThunderSelf;
         }
 
-        $existingSlaveGaijinIds = PeckAlt::query()
-            ->where('owner_id', $selectedMasterGaijinId)
-            ->orderBy('alt_id')
-            ->pluck('alt_id')
-            ->map(fn (mixed $altId): int => (int) $altId)
-            ->values()
-            ->all();
+        $this->thunderSelfResolved = true;
 
-        if ($existingSlaveGaijinIds !== []) {
-            $this->editingMasterGaijinId = $selectedMasterGaijinId;
-            $this->altFormSlaveGaijinIds = $existingSlaveGaijinIds;
+        $token = $this->resolveSquadronToken();
 
-            return;
-        }
-
-        $this->editingMasterGaijinId = null;
-        $this->altFormSlaveGaijinIds = [];
-    }
-
-    public function openAddSlaveModal(): void
-    {
-        $this->ensureCanEdit();
-
-        if (! filled($this->altFormMasterGaijinId)) {
-            $this->addError('altFormMasterGaijinId', __('Select a master account first.'));
-
-            return;
-        }
-
-        $this->newSlaveGaijinId = null;
-        $this->showAddSlaveModal = true;
-        $this->resetValidation(['newSlaveGaijinId']);
-    }
-
-    public function closeAddSlaveModal(): void
-    {
-        $this->ensureCanEdit();
-
-        $this->newSlaveGaijinId = null;
-        $this->showAddSlaveModal = false;
-        $this->resetValidation(['newSlaveGaijinId']);
-    }
-
-    public function addSlaveToMaster(): void
-    {
-        $this->ensureCanEdit();
-
-        $validated = $this->validate([
-            'newSlaveGaijinId' => [
-                'required',
-                'integer',
-                Rule::exists('peck_users', 'gaijin_id'),
-            ],
-        ]);
-
-        $newSlaveGaijinId = (int) $validated['newSlaveGaijinId'];
-
-        if (! $this->availableSlaveUsers()->contains('gaijin_id', $newSlaveGaijinId)) {
-            $this->addError('newSlaveGaijinId', __('The selected slave account is not available.'));
-
-            return;
-        }
-
-        if (in_array($newSlaveGaijinId, $this->altFormSlaveGaijinIds, true)) {
-            $this->closeAddSlaveModal();
-
-            return;
-        }
-
-        $this->altFormSlaveGaijinIds[] = $newSlaveGaijinId;
-        $this->altFormSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
-            ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
-            ->unique()
-            ->values()
-            ->all();
-
-        $this->closeAddSlaveModal();
-    }
-
-    public function removeSlaveFromMaster(int $slaveGaijinId): void
-    {
-        $this->ensureCanEdit();
-
-        $this->altFormSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
-            ->map(fn (mixed $candidateGaijinId): int => (int) $candidateGaijinId)
-            ->reject(fn (int $candidateGaijinId): bool => $candidateGaijinId === $slaveGaijinId)
-            ->values()
-            ->all();
-    }
-
-    public function setMasterFromSlave(int $slaveGaijinId): void
-    {
-        $this->ensureCanEdit();
-
-        if (! in_array($slaveGaijinId, $this->altFormSlaveGaijinIds, true)) {
-            return;
-        }
-
-        $currentMasterGaijinId = $this->nullableInteger($this->altFormMasterGaijinId);
-
-        if ($currentMasterGaijinId === null) {
-            $this->addError('altFormMasterGaijinId', __('Select a master account first.'));
-
-            return;
-        }
-
-        $remainingSlaveGaijinIds = collect($this->altFormSlaveGaijinIds)
-            ->map(fn (mixed $candidateGaijinId): int => (int) $candidateGaijinId)
-            ->reject(fn (int $candidateGaijinId): bool => $candidateGaijinId === $slaveGaijinId)
-            ->values()
-            ->all();
-
-        $this->altFormMasterGaijinId = (string) $slaveGaijinId;
-        $this->altFormSlaveGaijinIds = collect([
-            ...$remainingSlaveGaijinIds,
-            $currentMasterGaijinId,
-        ])
-            ->unique()
-            ->values()
-            ->all();
-    }
-
-    public function saveMasterAssignment(): void
-    {
-        $this->ensureCanEdit();
-        $this->dismissAltSaveError();
-
-        $validated = $this->validate([
-            'altFormMasterGaijinId' => [
-                'required',
-                'integer',
-                Rule::exists('peck_users', 'gaijin_id'),
-            ],
-            'altFormSlaveGaijinIds' => [
-                'required',
-                'array',
-                'min:1',
-            ],
-            'altFormSlaveGaijinIds.*' => [
-                'required',
-                'integer',
-                Rule::exists('peck_users', 'gaijin_id'),
-                'distinct',
-            ],
-        ]);
-
-        $masterGaijinId = (int) $validated['altFormMasterGaijinId'];
-        $slaveGaijinIds = collect($validated['altFormSlaveGaijinIds'])
-            ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
-            ->unique()
-            ->values()
-            ->all();
-
-        if (in_array($masterGaijinId, $slaveGaijinIds, true)) {
-            $this->addError('altFormSlaveGaijinIds', __('A master account cannot also be a slave account.'));
-            $this->showAltSaveErrorToast(__('A master account cannot also be a slave account.'));
-
-            return;
-        }
-
-        if ($this->editingMasterGaijinId === null && PeckAlt::query()->where('owner_id', $masterGaijinId)->exists()) {
-            $this->addError('altFormMasterGaijinId', __('The selected master account is already declared.'));
-            $this->showAltSaveErrorToast(__('The selected master account is already declared.'));
-
-            return;
-        }
-
-        $conflictingSlaveAssignments = PeckAlt::query()
-            ->whereIn('alt_id', $slaveGaijinIds);
-
-        if ($this->editingMasterGaijinId !== null) {
-            $conflictingSlaveAssignments->where('owner_id', '!=', $this->editingMasterGaijinId);
-        }
-
-        if ($conflictingSlaveAssignments->exists()) {
-            $this->addError('altFormSlaveGaijinIds', __('At least one selected slave account already has a different master.'));
-            $this->showAltSaveErrorToast(__('At least one selected slave account already has a different master.'));
-
-            return;
-        }
-
-        $slaveAccountsThatAreMasters = PeckAlt::query()
-            ->whereIn('owner_id', $slaveGaijinIds);
-
-        if ($this->editingMasterGaijinId !== null) {
-            $slaveAccountsThatAreMasters->where('owner_id', '!=', $this->editingMasterGaijinId);
-        }
-
-        if ($slaveAccountsThatAreMasters->exists()) {
-            $this->addError('altFormSlaveGaijinIds', __('A slave account cannot be declared as a master account.'));
-            $this->showAltSaveErrorToast(__('A slave account cannot be declared as a master account.'));
-
-            return;
-        }
-
-        $masterAssignedAsSlave = PeckAlt::query()
-            ->where('alt_id', $masterGaijinId);
-
-        if ($this->editingMasterGaijinId !== null) {
-            $masterAssignedAsSlave->where('owner_id', '!=', $this->editingMasterGaijinId);
-        }
-
-        if ($masterAssignedAsSlave->exists()) {
-            $this->addError('altFormMasterGaijinId', __('The selected master account is currently assigned as a slave account.'));
-            $this->showAltSaveErrorToast(__('The selected master account is currently assigned as a slave account.'));
-
-            return;
+        if ($token === null) {
+            return $this->resolvedThunderSelf = null;
         }
 
         try {
-            DB::transaction(function () use ($masterGaijinId, $slaveGaijinIds): void {
-                if ($this->editingMasterGaijinId !== null) {
-                    PeckAlt::query()
-                        ->where('owner_id', $this->editingMasterGaijinId)
-                        ->delete();
-                }
+            $this->resolvedThunderSelf = app(ThunderApi::class)->getSelf($token->token);
+        } catch (Throwable) {
+            $this->resolvedThunderSelf = null;
+        }
 
-                PeckAlt::query()
-                    ->whereIn('alt_id', $slaveGaijinIds)
-                    ->delete();
+        return $this->resolvedThunderSelf;
+    }
 
-                foreach ($slaveGaijinIds as $slaveGaijinId) {
-                    PeckAlt::query()->create([
-                        'alt_id' => $slaveGaijinId,
-                        'owner_id' => $masterGaijinId,
-                    ]);
-                }
-            });
-        } catch (Throwable $throwable) {
-            report($throwable);
-            $this->showAltSaveErrorToast(__('Saving master assignments failed.'));
+    /**
+     * Resolve the authenticated user's own Gaijin ID.
+     */
+    public function thunderUserId(): ?int
+    {
+        $self = $this->thunderSelf();
+
+        $userId = $self['userId'] ?? $self['userid'] ?? null;
+
+        return is_numeric($userId) && (int) $userId > 0 ? (int) $userId : null;
+    }
+
+    protected function effectiveThunderToken(): ?string
+    {
+        if ($this->effectiveThunderTokenResolved) {
+            return $this->resolvedEffectiveThunderToken;
+        }
+
+        $this->effectiveThunderTokenResolved = true;
+        $this->resolvedEffectiveThunderToken = $this->resolveEffectiveThunderToken();
+
+        return $this->resolvedEffectiveThunderToken;
+    }
+
+    protected function resolveEffectiveThunderToken(): ?string
+    {
+        $server = app(ServerThunderApi::class);
+
+        if ($server->isConfigured()) {
+            try {
+                return $server->token();
+            } catch (Throwable) {
+                // Fall back to the user's own token below.
+            }
+        }
+
+        $token = ThunderApiToken::query()->find(auth()->id());
+
+        if (! $token instanceof ThunderApiToken || $token->isExpired()) {
+            return null;
+        }
+
+        $refreshAfterHours = max(1, (int) config('peck.thunderapi_refresh.refresh_after_hours'));
+
+        if (! $token->isRefreshDue($refreshAfterHours)) {
+            return $token->token;
+        }
+
+        try {
+            $expires = app(ThunderApi::class)->refreshToken($token->token);
+        } catch (ThunderApiException) {
+            return $token->token;
+        }
+
+        if ($expires === null) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            return null;
+        }
+
+        $token->forceFill([
+            'expires_at' => $expires,
+            'refreshed_at' => now(),
+        ])->save();
+
+        return $token->token;
+    }
+
+    public function isAdminRole(?string $role): bool
+    {
+        return in_array($role, self::ADMIN_ROLES, true);
+    }
+
+    public function canEdit(): bool
+    {
+        return $this->isAdminRole($this->thunderRole());
+    }
+
+    /**
+     * Whether the selected member is still in the squadron, so the Manage
+     * tab remains relevant.
+     */
+    public function canManageSelectedMember(): bool
+    {
+        return $this->canEdit() && $this->selectedMemberStatus() !== 'ex_member';
+    }
+
+    protected function selectedMemberStatus(): ?string
+    {
+        $selectedMember = $this->selectedMember();
+
+        if ($selectedMember === null) {
+            return null;
+        }
+
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken());
+
+        return $resolver->statusFor($selectedMember->gaijin_id, $roster);
+    }
+
+    public function canChangeRoles(): bool
+    {
+        return in_array($this->thunderRole(), [self::ROLE_DEPUTY, self::ROLE_COMMANDER], true);
+    }
+
+    /**
+     * Whether the current user may change the selected member's role.
+     *
+     * Deputies may change everyone's role except their own and the Commander's;
+     * Commanders may change everyone's role except their own.
+     */
+    public function canChangeRoleFor(?string $memberRole): bool
+    {
+        if (! $this->canChangeRoles()) {
+            return false;
+        }
+
+        $ownGaijinId = $this->thunderUserId();
+
+        if ($ownGaijinId !== null && $this->selectedMemberGaijinId !== null && $ownGaijinId === $this->selectedMemberGaijinId) {
+            return false;
+        }
+
+        if ($this->thunderRole() === self::ROLE_DEPUTY && ($memberRole === null || $memberRole === self::ROLE_COMMANDER)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    protected function ensureCanEdit(): bool
+    {
+        if (! $this->canEdit()) {
+            abort(403);
+        }
+
+        return $this->ensureVerifiedForEdit();
+    }
+
+    protected function ensureVerifiedForEdit(): bool
+    {
+        $user = auth()->user();
+
+        if ($user instanceof User && ! $user->hasVerifiedEmail()) {
+            $this->showVerificationRequiredModal = true;
+
+            return false;
+        }
+
+        return true;
+    }
+
+    public function dismissVerificationRequiredModal(): void
+    {
+        $this->showVerificationRequiredModal = false;
+    }
+
+    public function dismissThunderApiError(): void
+    {
+        $this->thunderApiError = false;
+        $this->thunderApiErrorDismissed = true;
+    }
+
+    protected function syncThunderApiErrorState(bool $unreachable): void
+    {
+        if (! $unreachable) {
+            $this->thunderApiErrorDismissed = false;
+        }
+
+        $this->thunderApiError = $unreachable && ! $this->thunderApiErrorDismissed;
+    }
+
+    public function openMemberModal(int $gaijinId): void
+    {
+        $peckUser = PeckUser::query()->findOrFail($gaijinId);
+
+        $this->selectedMemberGaijinId = $peckUser->gaijin_id;
+        $this->memberTab = 'member';
+        $this->memberEditMode = false;
+        $this->ownerSearch = '';
+        $this->showAddContextForm = false;
+        $this->contextForm = $this->blankContextForm();
+        $this->showContextEntryModal = false;
+        $this->selectedContextEntryId = null;
+        $this->contextEntryEditMode = false;
+        $this->contextEntryComment = '';
+        $this->showKickConfirmModal = false;
+        $this->kickReason = '';
+        $this->manageActionError = '';
+        $this->manageRole = null;
+        $this->memberForm = $this->memberFormFromUser($peckUser);
+        $this->showMemberModal = true;
+        $this->resetValidation();
+    }
+
+    public function closeMemberModal(): void
+    {
+        $this->showMemberModal = false;
+        $this->selectedMemberGaijinId = null;
+        $this->memberTab = 'member';
+        $this->memberEditMode = false;
+        $this->ownerSearch = '';
+        $this->showAddContextForm = false;
+        $this->contextForm = $this->blankContextForm();
+        $this->showContextEntryModal = false;
+        $this->selectedContextEntryId = null;
+        $this->contextEntryEditMode = false;
+        $this->contextEntryComment = '';
+        $this->showKickConfirmModal = false;
+        $this->kickReason = '';
+        $this->manageActionError = '';
+        $this->manageRole = null;
+        $this->resetValidation();
+    }
+
+    public function selectMemberTab(string $tab): void
+    {
+        if (! in_array($tab, ['member', 'context', 'manage'], true)) {
+            return;
+        }
+
+        if ($tab === 'manage' && ! $this->canManageSelectedMember()) {
+            abort(403);
+        }
+
+        if ($tab === 'manage' && $this->manageRole === null) {
+            $role = $this->resolveSelectedMemberRole(fresh: true);
+
+            if (in_array($role, $this->assignableRoles(), true) && $this->canChangeRoleFor($role)) {
+                $this->manageRole = $role;
+            }
+        }
+
+        $this->memberTab = $tab;
+    }
+
+    public function enterMemberEditMode(): void
+    {
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
+
+        $peckUser = $this->selectedMember();
+
+        if ($peckUser === null) {
+            return;
+        }
+
+        $this->memberForm = $this->memberFormFromUser($peckUser);
+        $this->ownerSearch = '';
+        $this->memberEditMode = true;
+        $this->resetValidation();
+    }
+
+    public function cancelMemberEdit(): void
+    {
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
+
+        $peckUser = $this->selectedMember();
+
+        if ($peckUser !== null) {
+            $this->memberForm = $this->memberFormFromUser($peckUser);
+        }
+
+        $this->ownerSearch = '';
+        $this->memberEditMode = false;
+        $this->resetValidation();
+    }
+
+    public function saveMember(): void
+    {
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
+
+        $peckUser = $this->selectedMember();
+
+        if ($peckUser === null) {
+            $this->addError('selectedMemberGaijinId', __('The selected member no longer exists.'));
+            $this->closeMemberModal();
 
             return;
         }
 
-        $this->dispatch('peck-alt-saved');
-        $this->closeMasterEditModal();
-        $this->resetPage('alt-masters-page');
+        $validated = $this->validate($this->memberRules());
+        $form = $validated['memberForm'];
+
+        $ownerGaijinId = $this->nullableInteger($form['owner']);
+
+        if ($ownerGaijinId !== null && $ownerGaijinId === $peckUser->gaijin_id) {
+            $this->addError('memberForm.owner', __('A member cannot own themselves.'));
+
+            return;
+        }
+
+        $ownerDiscordId = $ownerGaijinId !== null
+            ? $this->nullableInteger(PeckUser::query()->whereKey($ownerGaijinId)->value('discord_id'))
+            : null;
+
+        DB::transaction(function () use ($peckUser, $form, $ownerGaijinId, $ownerDiscordId): void {
+            $attributes = $ownerGaijinId !== null
+                ? ['discord_id' => $ownerDiscordId]
+                : [
+                    'discord_id' => $this->nullableInteger($form['discord_id']),
+                    'tz' => $this->nullableInteger($form['tz']),
+                    'sqb_part' => $form['sqb_part'],
+                ];
+
+            $peckUser->fill($attributes);
+            $peckUser->save();
+
+            $this->syncMemberOwner($peckUser->gaijin_id, $ownerGaijinId);
+        });
+
+        $this->memberEditMode = false;
+        $this->dispatch('peck-member-saved');
+        $this->memberForm = $this->memberFormFromUser($peckUser->fresh());
     }
 
-    public function dismissAltSaveError(): void
+    protected function syncMemberOwner(int $gaijinId, ?int $ownerId): void
     {
-        $this->showAltSaveError = false;
-        $this->altSaveErrorMessage = '';
+        if ($ownerId === null) {
+            PeckAlt::query()->where('alt_id', $gaijinId)->delete();
+
+            return;
+        }
+
+        if ($ownerId === $gaijinId) {
+            return;
+        }
+
+        PeckAlt::query()->where('owner_id', $gaijinId)->delete();
+
+        PeckAlt::query()->updateOrCreate(
+            ['alt_id' => $gaijinId],
+            ['owner_id' => $ownerId],
+        );
     }
 
-    public function openContextModal(int $gaijinId): void
+    /**
+     * @return array{gaijin_id:?string,discord_id:?string,tz:?string,sqb_part:bool,owner:?string}
+     */
+    protected function memberFormFromUser(PeckUser $peckUser): array
     {
-        $peckUser = PeckUser::query()->findOrFail($gaijinId);
-
-        $this->selectedContextGaijinId = $peckUser->gaijin_id;
-        $this->selectedContextUsername = $peckUser->username;
-        $this->contextShowExpiredAbsences = false;
-        $this->showAddContextForm = false;
-        $this->contextForm = $this->blankContextForm();
-        $this->showContextModal = true;
-        $this->resetValidation();
+        return [
+            'gaijin_id' => $this->nullableString($peckUser->gaijin_id),
+            'discord_id' => $this->nullableString($peckUser->discord_id),
+            'tz' => $this->nullableString($peckUser->tz),
+            'sqb_part' => (bool) $peckUser->sqb_part,
+            'owner' => $this->nullableString($this->memberOwnerOf($peckUser->gaijin_id)),
+        ];
     }
 
-    public function closeContextModal(): void
+    protected function memberOwnerOf(int $gaijinId): ?int
     {
-        $this->showContextModal = false;
-        $this->selectedContextGaijinId = null;
-        $this->selectedContextUsername = null;
-        $this->contextShowExpiredAbsences = false;
-        $this->showAddContextForm = false;
-        $this->contextForm = $this->blankContextForm();
-        $this->resetValidation();
+        $ownerId = PeckAlt::query()->where('alt_id', $gaijinId)->value('owner_id');
+
+        return is_numeric($ownerId) ? (int) $ownerId : null;
+    }
+
+    protected function selectedMember(): ?PeckUser
+    {
+        if ($this->selectedMemberGaijinId === null) {
+            return null;
+        }
+
+        return PeckUser::query()->find($this->selectedMemberGaijinId);
     }
 
     public function openAddContextForm(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
-        if ($this->selectedContextGaijinId === null) {
-            $this->addError('selectedContextGaijinId', __('Select a user before adding context.'));
+        if ($this->selectedMemberGaijinId === null) {
+            $this->addError('selectedMemberGaijinId', __('Select a member before adding context.'));
 
             return;
         }
@@ -836,7 +838,9 @@ class PeckUsersDashboard extends Component
 
     public function closeAddContextForm(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
         $this->showAddContextForm = false;
         $this->contextForm = $this->blankContextForm();
@@ -845,10 +849,12 @@ class PeckUsersDashboard extends Component
 
     public function addContext(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
-        if ($this->selectedContextGaijinId === null) {
-            $this->addError('selectedContextGaijinId', __('Select a user before adding context.'));
+        if ($this->selectedMemberGaijinId === null) {
+            $this->addError('selectedMemberGaijinId', __('Select a member before adding context.'));
 
             return;
         }
@@ -870,8 +876,8 @@ class PeckUsersDashboard extends Component
         DB::transaction(function () use ($contextForm): void {
             foreach ($this->contextPayloads($contextForm) as $payload) {
                 PeckUserContext::query()->create([
-                    'user_id' => $this->selectedContextGaijinId,
-                    'context_id' => PeckUserContext::lowestAvailableContextId((int) $this->selectedContextGaijinId),
+                    'user_id' => $this->selectedMemberGaijinId,
+                    'context_id' => PeckUserContext::lowestAvailableContextId((int) $this->selectedMemberGaijinId),
                     ...$payload,
                 ]);
             }
@@ -885,237 +891,722 @@ class PeckUsersDashboard extends Component
 
     public function removeContext(int $contextId): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
-        if ($this->selectedContextGaijinId === null) {
+        if ($this->selectedMemberGaijinId === null) {
             return;
         }
 
         PeckUserContext::query()
-            ->where('user_id', $this->selectedContextGaijinId)
+            ->where('user_id', $this->selectedMemberGaijinId)
             ->where('context_id', $contextId)
             ->delete();
     }
 
-    public function contextDisplayText(PeckUserContext $context): string
+    public function openContextEntryModal(int $contextId): void
+    {
+        $entry = $this->contextEntry($contextId);
+
+        if ($entry === null || $entry->type !== PeckUserContext::TYPE_MISC) {
+            return;
+        }
+
+        $this->selectedContextEntryId = $entry->context_id;
+        $this->contextEntryComment = (string) $entry->comment;
+        $this->contextEntryEditMode = false;
+        $this->showContextEntryModal = true;
+    }
+
+    public function closeContextEntryModal(): void
+    {
+        $this->showContextEntryModal = false;
+        $this->selectedContextEntryId = null;
+        $this->contextEntryEditMode = false;
+        $this->contextEntryComment = '';
+    }
+
+    public function enterContextEntryEditMode(): void
+    {
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
+
+        $entry = $this->selectedContextEntry();
+
+        if ($entry !== null) {
+            $this->contextEntryComment = (string) $entry->comment;
+        }
+
+        $this->contextEntryEditMode = true;
+    }
+
+    public function cancelContextEntryEdit(): void
+    {
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
+
+        $entry = $this->selectedContextEntry();
+
+        if ($entry !== null) {
+            $this->contextEntryComment = (string) $entry->comment;
+        }
+
+        $this->contextEntryEditMode = false;
+    }
+
+    public function saveContextEntry(): void
+    {
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
+
+        $entry = $this->selectedContextEntry();
+
+        if ($entry === null) {
+            $this->closeContextEntryModal();
+
+            return;
+        }
+
+        $validated = $this->validate([
+            'contextEntryComment' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $entry->comment = $validated['contextEntryComment'];
+        $entry->save();
+
+        $this->dispatch('peck-context-updated');
+        $this->contextEntryEditMode = false;
+        $this->contextEntryComment = (string) $entry->comment;
+    }
+
+    protected function contextEntry(int $contextId): ?PeckUserContext
+    {
+        if ($this->selectedMemberGaijinId === null) {
+            return null;
+        }
+
+        return PeckUserContext::query()
+            ->where('user_id', $this->selectedMemberGaijinId)
+            ->where('context_id', $contextId)
+            ->first();
+    }
+
+    protected function selectedContextEntry(): ?PeckUserContext
+    {
+        if ($this->selectedMemberGaijinId === null || $this->selectedContextEntryId === null) {
+            return null;
+        }
+
+        return PeckUserContext::query()
+            ->where('user_id', $this->selectedMemberGaijinId)
+            ->where('context_id', $this->selectedContextEntryId)
+            ->first();
+    }
+
+    public function contextEntryTypeLabel(PeckUserContext $context): string
+    {
+        return match ($context->type) {
+            PeckUserContext::TYPE_MISC => 'misc',
+            PeckUserContext::TYPE_ONCE_ABSENCE, PeckUserContext::TYPE_RECURRING_ABSENCE => 'absence',
+            default => $context->type,
+        };
+    }
+
+    public function contextEntrySummary(PeckUserContext $context): string
     {
         if ($context->type === PeckUserContext::TYPE_MISC) {
-            return __('misc: :comment', ['comment' => $context->comment]);
+            return Str::limit((string) $context->comment, 25);
         }
 
         if ($context->type === PeckUserContext::TYPE_ONCE_ABSENCE) {
-            return __('absence: :from - :to', [
-                'from' => $context->from_date?->format('Y.m.d') ?? '—',
-                'to' => $context->to_date?->format('Y.m.d') ?? '—',
-            ]);
+            return ($context->from_date?->format('Y.m.d') ?? '—').' - '.($context->to_date?->format('Y.m.d') ?? '—');
         }
 
         if (is_array($context->weekdays)) {
             $weekdayNames = collect($context->weekdays)
                 ->map(fn (mixed $weekday): string => $this->weekdayName((int) $weekday))
-                ->implode(',');
+                ->implode(', ');
 
-            return __('absence: every :weekdays', ['weekdays' => $weekdayNames]);
+            return __('every :weekdays', ['weekdays' => $weekdayNames]);
         }
 
-        return __('absence: every month on the :day', [
+        return __('every month on the :day', [
             'day' => $this->ordinal((int) $context->month_day),
         ]);
     }
 
-    public function selectUser(int $gaijinId): void
+    public function openKickConfirmModal(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
-        $peckUser = PeckUser::query()->findOrFail($gaijinId);
+        if ($this->selectedMemberGaijinId === null) {
+            return;
+        }
 
-        $this->selectedGaijinId = $peckUser->gaijin_id;
-        $this->form = [
-            'gaijin_id' => $this->nullableString($peckUser->gaijin_id),
-            'username' => $peckUser->username,
-            'discord_id' => $this->nullableString($peckUser->discord_id),
-            'tz' => $this->nullableString($peckUser->tz),
-            'status' => $peckUser->status,
-            'joindate' => $peckUser->joindate?->format('Y-m-d'),
-            'initiator' => $this->nullableString($peckUser->initiator),
-        ];
-
-        $this->resetValidation();
-        $this->showEditModal = true;
+        $this->kickReason = '';
+        $this->manageActionError = '';
+        $this->showKickConfirmModal = true;
     }
 
-    public function clearSelection(): void
+    public function cancelKick(): void
     {
-        $this->ensureCanEdit();
-
-        $this->selectedGaijinId = null;
-        $this->form = $this->blankUserForm();
-        $this->resetValidation();
-        $this->showEditModal = false;
+        $this->showKickConfirmModal = false;
+        $this->kickReason = '';
     }
 
-    public function openLeaveInfoModal(int $gaijinId, bool $fromStatusChange = false): void
+    public function kickMember(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
-        $peckUser = PeckUser::query()
-            ->with('leaveInfo')
-            ->findOrFail($gaijinId);
+        $gaijinId = $this->selectedMemberGaijinId;
 
-        if ($peckUser->status !== 'ex_member') {
-            $this->addError('selectedLeaveInfoGaijinId', __('Leave info can only be edited for ex-member users.'));
+        if ($gaijinId === null) {
+            return;
+        }
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null) {
+            $this->manageActionError = __('Your ThunderAPI token is no longer valid. Please reconnect your account.');
 
             return;
         }
 
-        $this->selectedLeaveInfoGaijinId = $peckUser->gaijin_id;
-        $this->selectedLeaveInfoUsername = $peckUser->username;
-        $this->selectedLeaveInfoUserDetails = [
-            'gaijin_id' => (string) $peckUser->gaijin_id,
-            'username' => $peckUser->username,
-            'status' => $peckUser->status,
-            'discord_id' => $this->nullableString($peckUser->discord_id) ?? '—',
-            'joindate' => $peckUser->joindate?->format('Y-m-d') ?? '—',
-            'current_leave_info' => $peckUser->leaveInfo?->type ?? '—',
-        ];
-        $this->leaveInfoForm = [
-            'type' => $peckUser->leaveInfo?->type ?? PeckLeaveInfo::TYPE_LEFT,
-        ];
-        $this->leaveInfoModalFromStatusChange = $fromStatusChange;
-        $this->showLeaveInfoModal = true;
-        $this->resetValidation();
+        $this->manageActionError = '';
+
+        try {
+            app(ThunderApi::class)->kickMember($token->token, (string) $gaijinId, $this->kickReason);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $this->manageActionError = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->manageActionError = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->manageActionError = __('ThunderAPI could not be reached.');
+
+            return;
+        }
+
+        $this->showKickConfirmModal = false;
+        $this->kickReason = '';
+        $this->manageActionError = '';
+        $this->dispatch('peck-member-kicked');
     }
 
-    public function closeLeaveInfoModal(): void
+    public function changeMemberRole(): void
     {
-        $this->ensureCanEdit();
+        if (! $this->ensureCanEdit()) {
+            return;
+        }
 
-        $this->showLeaveInfoModal = false;
-        $this->selectedLeaveInfoGaijinId = null;
-        $this->selectedLeaveInfoUsername = null;
-        $this->leaveInfoForm = [
-            'type' => PeckLeaveInfo::TYPE_LEFT,
-        ];
-        $this->selectedLeaveInfoUserDetails = [
-            'gaijin_id' => '',
-            'username' => '',
-            'status' => '',
-            'discord_id' => '',
-            'joindate' => '',
-            'current_leave_info' => '',
-        ];
-        $this->leaveInfoModalFromStatusChange = false;
-        $this->resetValidation();
-    }
+        if (! $this->canChangeRoles()) {
+            abort(403);
+        }
 
-    public function saveLeaveInfo(): void
-    {
-        $this->ensureCanEdit();
+        $gaijinId = $this->selectedMemberGaijinId;
+        $role = $this->manageRole;
 
-        if ($this->selectedLeaveInfoGaijinId === null) {
-            $this->addError('selectedLeaveInfoGaijinId', __('Select an ex-member before saving leave info.'));
+        if ($gaijinId === null || ! in_array($role, $this->assignableRoles(), true)) {
+            return;
+        }
+
+        if (! $this->canChangeRoleFor($this->resolveSelectedMemberRole(fresh: true))) {
+            abort(403);
+        }
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null) {
+            $this->manageActionError = __('Your ThunderAPI token is no longer valid. Please reconnect your account.');
 
             return;
         }
 
-        $validated = $this->validate($this->leaveInfoRules());
-        $peckUser = PeckUser::query()->find($this->selectedLeaveInfoGaijinId);
+        $this->manageActionError = '';
 
-        if ($peckUser === null) {
-            $this->addError('selectedLeaveInfoGaijinId', __('The selected peck user no longer exists.'));
-            $this->closeLeaveInfoModal();
+        try {
+            app(ThunderApi::class)->changeMemberRole($token->token, (string) $gaijinId, $role);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $this->manageActionError = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->manageActionError = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->manageActionError = __('ThunderAPI could not be reached.');
 
             return;
         }
 
-        if ($peckUser->status !== 'ex_member') {
-            $this->addError('leaveInfoForm.type', __('Leave info can only be set for ex-member users.'));
-
-            return;
-        }
-
-        PeckLeaveInfo::query()->updateOrCreate(
-            ['user_id' => $peckUser->gaijin_id],
-            ['type' => $validated['leaveInfoForm']['type']],
-        );
-
-        $this->dispatch('peck-leave-info-saved');
-        $this->closeLeaveInfoModal();
-    }
-
-    public function save(): void
-    {
-        $this->ensureCanEdit();
-
-        if ($this->selectedGaijinId === null) {
-            $this->addError('selectedGaijinId', __('Select a peck user before saving.'));
-
-            return;
-        }
-
-        $validated = $this->validate($this->rules());
-        $updatedGaijinId = (int) $validated['form']['gaijin_id'];
-        $updatedStatus = $validated['form']['status'];
-
-        $previousGaijinId = $this->selectedGaijinId;
-        $peckUser = PeckUser::query()->find($previousGaijinId);
-
-        if ($peckUser === null) {
-            $this->addError('selectedGaijinId', __('The selected peck user no longer exists.'));
-            $this->clearSelection();
-
-            return;
-        }
-
-        $previousStatus = $peckUser->status;
-
-        $peckUser->fill([
-            'gaijin_id' => $updatedGaijinId,
-            'username' => $validated['form']['username'],
-            'discord_id' => $this->nullableInteger($validated['form']['discord_id']),
-            'tz' => $this->nullableInteger($validated['form']['tz']),
-            'status' => $updatedStatus,
-            'joindate' => $validated['form']['joindate'],
-            'initiator' => $this->nullableInteger($validated['form']['initiator']),
-        ]);
-        $peckUser->save();
-
-        if ($previousStatus === 'ex_member' && $updatedStatus !== 'ex_member') {
-            PeckLeaveInfo::query()
-                ->where('user_id', $previousGaijinId)
-                ->delete();
-        }
-
-        $shouldOpenLeaveInfoModal = $previousStatus !== 'ex_member'
-            && $updatedStatus === 'ex_member'
-            && ! PeckLeaveInfo::query()->where('user_id', $updatedGaijinId)->exists();
-
-        $this->dispatch('peck-user-saved');
-
-        if ($shouldOpenLeaveInfoModal) {
-            $this->showEditModal = false;
-            $this->openLeaveInfoModal($updatedGaijinId, true);
-
-            return;
-        }
-
-        $this->selectUser($updatedGaijinId);
+        $this->manageRole = null;
+        $this->manageActionError = '';
+        $this->dispatch('peck-member-role-changed');
     }
 
     /**
-     * @return array{gaijin_id:?string,username:string,discord_id:?string,tz:?string,status:string,joindate:?string,initiator:?string}
+     * Resolve the selected member's squadron role from the roster.
      */
-    protected function blankUserForm(): array
+    protected function resolveSelectedMemberRole(bool $fresh = false): ?string
     {
+        $gaijinId = $this->selectedMemberGaijinId;
+
+        if ($gaijinId === null) {
+            return null;
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable, $fresh);
+
+        return $resolver->roleFor($gaijinId, $roster);
+    }
+
+    public function squadronIdConfigured(): bool
+    {
+        return filled((string) config('peck.squadron_id'));
+    }
+
+    public function thunderLoggedIn(): bool
+    {
+        $token = ThunderApiToken::query()->find(auth()->id());
+
+        return $token instanceof ThunderApiToken && ! $token->isExpired();
+    }
+
+    /**
+     * Returns the reason the Squadron pages are blocked, or null when accessible.
+     */
+    public function squadronBlockReason(): ?string
+    {
+        if (! $this->isSquadronSection()) {
+            return null;
+        }
+
+        if (! $this->squadronIdConfigured()) {
+            return 'squadron_id';
+        }
+
+        if (! $this->thunderLoggedIn()) {
+            return $this->thunderPromptDismissed ? null : 'thunder';
+        }
+
+        return null;
+    }
+
+    public function dismissThunderPrompt(): void
+    {
+        $this->thunderPromptDismissed = true;
+    }
+
+    public function loadMoreSquadronLogs(): void
+    {
+        $this->loadSquadronLogs($this->squadronLogsLastLog);
+    }
+
+    protected function resolveSquadronToken(): ?ThunderApiToken
+    {
+        $token = ThunderApiToken::query()->find(auth()->id());
+
+        if (! $token instanceof ThunderApiToken || $token->isExpired()) {
+            return null;
+        }
+
+        $refreshAfterHours = max(1, (int) config('peck.thunderapi_refresh.refresh_after_hours'));
+
+        if (! $token->isRefreshDue($refreshAfterHours)) {
+            return $token;
+        }
+
+        try {
+            $expires = app(ThunderApi::class)->refreshToken($token->token);
+        } catch (ThunderApiException $exception) {
+            return $token;
+        }
+
+        if ($expires === null) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            return null;
+        }
+
+        $token->forceFill([
+            'expires_at' => $expires,
+            'refreshed_at' => now(),
+        ])->save();
+
+        return $token;
+    }
+
+    public function loadSquadronLogs(?string $fromEntry = null): void
+    {
+        if ($this->squadronBlockReason() !== null || $this->thunderPromptDismissed) {
+            return;
+        }
+
+        $clanId = (string) config('peck.squadron_id');
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null || $clanId === '') {
+            return;
+        }
+
+        $this->squadronLogsLoading = true;
+        $this->squadronLogsFailed = false;
+        $this->squadronLogsErrorMessage = '';
+
+        try {
+            $result = app(ThunderApi::class)->getClanLogs($token->token, $clanId, $fromEntry);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            $this->squadronLogsLoading = false;
+            $this->squadronLogsFailed = true;
+            $this->squadronLogsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->squadronLogsLoading = false;
+            $this->squadronLogsFailed = true;
+            $this->squadronLogsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->squadronLogsLoading = false;
+            $this->squadronLogsFailed = true;
+            $this->squadronLogsErrorMessage = __('ThunderAPI could not be reached.');
+
+            return;
+        }
+
+        $entries = array_map(fn (array $entry): array => $this->normalizeSquadronLog($entry), $result['logs']);
+
+        $this->squadronLogs = array_merge($this->squadronLogs, $entries);
+        $this->squadronLogsLastLog = $result['lastLog'] !== '' ? $result['lastLog'] : null;
+        $this->squadronLogsHasMore = count($result['logs']) > 0;
+        $this->squadronLogsLoading = false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     * @return array{action_label:string,actor:?string,datetime:?string,details:list<array{label:?string,value:string,glyphs:bool}>}
+     */
+    protected function normalizeSquadronLog(array $entry): array
+    {
+        $action = $entry['action'] ?? null;
+        $actionValue = is_array($action) && is_numeric($action['value'] ?? null) ? (int) $action['value'] : null;
+
+        $admin = $entry['admin'] ?? null;
+        $adminNickname = is_array($admin) ? (string) ($admin['nickname'] ?? '') : '';
+        $adminId = is_array($admin) ? ($admin['_id'] ?? null) : null;
+
+        $affected = $entry['affected'] ?? null;
+        $affectedNickname = is_array($affected) ? (string) ($affected['nickname'] ?? '') : '';
+        $affectedId = is_array($affected) ? ($affected['_id'] ?? null) : null;
+
+        $roleChange = $entry['roleChange'] ?? null;
+        $roleOld = is_array($roleChange) ? ($roleChange['old'] ?? null) : null;
+        $roleNew = is_array($roleChange) ? ($roleChange['new'] ?? null) : null;
+
+        $comment = $entry['comment'] ?? null;
+        $info = $entry['info'] ?? null;
+
+        $timestamp = $entry['timestamp'] ?? null;
+
+        $actor = $adminNickname !== ''
+            ? $this->formatSquadronLogUser($adminNickname, $adminId)
+            : null;
+
+        $affectedUser = $affectedNickname !== ''
+            ? $this->formatSquadronLogUser($affectedNickname, $affectedId)
+            : __('Unknown user');
+
+        $isKick = $adminNickname !== ''
+            && $affectedNickname !== ''
+            && ! ($adminId !== null && $affectedId !== null && (string) $adminId === (string) $affectedId);
+
+        $details = [];
+
+        if ($roleOld !== null || $roleNew !== null) {
+            $details[] = [
+                'label' => null,
+                'value' => __('Role changed from :old to :new', [
+                    'old' => $roleOld ?? '—',
+                    'new' => $roleNew ?? '—',
+                ]),
+                'glyphs' => false,
+            ];
+        }
+
+        if (is_string($comment) && $comment !== '') {
+            $details[] = ['label' => null, 'value' => $comment, 'glyphs' => true];
+        }
+
+        if ($actionValue === 4) {
+            foreach (['tag', 'desc', 'region', 'status'] as $infoKey) {
+                $infoValue = $entry[$infoKey] ?? null;
+
+                if (is_string($infoValue) && $infoValue !== '') {
+                    $details[] = [
+                        'label' => ucfirst($infoKey),
+                        'value' => $infoValue,
+                        'glyphs' => in_array($infoKey, ['tag', 'desc'], true),
+                    ];
+                }
+            }
+        }
+
+        if ($actionValue === 5 && is_array($info)) {
+            $infoParts = [];
+
+            foreach (['name', 'tag', 'slogan'] as $infoKey) {
+                $infoValue = $info[$infoKey] ?? null;
+
+                if (is_string($infoValue) && $infoValue !== '') {
+                    $infoParts[] = $infoValue;
+                }
+            }
+
+            if ($infoParts !== []) {
+                $details[] = ['label' => null, 'value' => implode(' — ', $infoParts), 'glyphs' => true];
+            }
+        }
+
         return [
-            'gaijin_id' => null,
-            'username' => '',
-            'discord_id' => null,
-            'tz' => '0',
-            'status' => 'member',
-            'joindate' => null,
-            'initiator' => null,
+            'action_label' => $this->squadronLogActionLabel($actionValue, $affectedUser, $isKick),
+            'actor' => $actor,
+            'datetime' => is_numeric($timestamp) ? Carbon::createFromTimestamp((int) $timestamp)->format('Y-m-d H:i') : null,
+            'details' => $details,
         ];
+    }
+
+    public function squadronLogActionLabel(?int $value, string $user, bool $isKick = false): string
+    {
+        return match ($value) {
+            0 => $isKick ? __(':user was kicked', ['user' => $user]) : __(':user left', ['user' => $user]),
+            1 => __(':user\'s application was accepted', ['user' => $user]),
+            2 => __(':user\'s role was changed', ['user' => $user]),
+            3 => __(':user\'s application was rejected', ['user' => $user]),
+            4 => __('Squadron information changed'),
+            5 => __('Squadron created'),
+            default => __('Unknown action'),
+        };
+    }
+
+    protected function formatSquadronLogUser(string $nickname, mixed $gaijinId): string
+    {
+        return is_numeric($gaijinId)
+            ? $nickname.' (#'.$gaijinId.')'
+            : $nickname;
+    }
+
+    public function loadSquadronApplicants(): void
+    {
+        if ($this->squadronBlockReason() !== null || $this->thunderPromptDismissed) {
+            return;
+        }
+
+        $clanId = (string) config('peck.squadron_id');
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null || $clanId === '') {
+            return;
+        }
+
+        $this->squadronApplicantsLoading = true;
+        $this->squadronApplicantsFailed = false;
+        $this->squadronApplicantsErrorMessage = '';
+
+        try {
+            $applicants = app(ThunderApi::class)->getClanApplicants($token->token, $clanId);
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            $this->squadronApplicantsLoading = false;
+            $this->squadronApplicantsFailed = true;
+            $this->squadronApplicantsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->squadronApplicantsLoading = false;
+            $this->squadronApplicantsFailed = true;
+            $this->squadronApplicantsErrorMessage = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->squadronApplicantsLoading = false;
+            $this->squadronApplicantsFailed = true;
+            $this->squadronApplicantsErrorMessage = __('ThunderAPI could not be reached.');
+
+            return;
+        }
+
+        $this->squadronApplicants = array_map(fn (array $applicant): array => $this->normalizeSquadronApplicant($applicant), $applicants);
+        $this->squadronApplicantsLoading = false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $applicant
+     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}
+     */
+    protected function normalizeSquadronApplicant(array $applicant): array
+    {
+        $uid = $applicant['uid'] ?? null;
+        $geodata = $applicant['geodata'] ?? null;
+        $country = is_array($geodata) ? ($geodata['country'] ?? null) : null;
+        $timezone = is_array($geodata) ? ($geodata['timezone'] ?? null) : null;
+        $timestamp = $applicant['timestamp'] ?? null;
+
+        return [
+            'uid' => is_numeric($uid) ? (string) $uid : '',
+            'nickname' => (string) ($applicant['nickname'] ?? ''),
+            'timestamp' => is_numeric($timestamp) ? Carbon::createFromTimestamp((int) $timestamp)->format('Y-m-d H:i') : null,
+            'country' => is_string($country) && $country !== '' ? $country : null,
+            'timezone' => is_int($timezone) ? $this->formatSquadronTimezone($timezone) : null,
+            'comment' => (string) ($applicant['comment'] ?? ''),
+        ];
+    }
+
+    protected function formatSquadronTimezone(int $timezone): string
+    {
+        return 'UTC'.($timezone >= 0 ? '+' : '').$timezone;
+    }
+
+    /**
+     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}|null
+     */
+    public function selectedApplicant(): ?array
+    {
+        if ($this->selectedApplicantUid === null) {
+            return null;
+        }
+
+        foreach ($this->squadronApplicants as $applicant) {
+            if ($applicant['uid'] === $this->selectedApplicantUid) {
+                return $applicant;
+            }
+        }
+
+        return null;
+    }
+
+    public function openApplicantModal(string $uid): void
+    {
+        $this->selectedApplicantUid = $uid;
+        $this->applicantActionError = '';
+        $this->showApplicantModal = true;
+    }
+
+    public function closeApplicantModal(): void
+    {
+        $this->showApplicantModal = false;
+        $this->selectedApplicantUid = null;
+        $this->showRejectApplicantModal = false;
+        $this->rejectApplicantReason = '';
+        $this->applicantActionError = '';
+    }
+
+    public function openRejectApplicantModal(): void
+    {
+        if (! $this->ensureVerifiedForEdit()) {
+            return;
+        }
+
+        $this->rejectApplicantReason = '';
+        $this->applicantActionError = '';
+        $this->showRejectApplicantModal = true;
+    }
+
+    public function cancelRejectApplicant(): void
+    {
+        $this->showRejectApplicantModal = false;
+        $this->rejectApplicantReason = '';
+        $this->applicantActionError = '';
+    }
+
+    public function acceptApplicant(): void
+    {
+        $this->performApplicantAction('accept');
+    }
+
+    public function confirmRejectApplicant(): void
+    {
+        $this->performApplicantAction('reject', $this->rejectApplicantReason);
+    }
+
+    public function performApplicantAction(string $action, string $message = ''): void
+    {
+        if (! $this->ensureVerifiedForEdit()) {
+            return;
+        }
+
+        $uid = $this->selectedApplicantUid;
+
+        if ($uid === null || ! in_array($action, ['accept', 'reject'], true)) {
+            return;
+        }
+
+        $token = $this->resolveSquadronToken();
+
+        if ($token === null) {
+            $this->applicantActionError = __('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+
+            return;
+        }
+
+        $this->applicantActionError = '';
+
+        try {
+            if ($action === 'accept') {
+                app(ThunderApi::class)->acceptApplicant($token->token, $uid);
+            } else {
+                app(ThunderApi::class)->rejectApplicant($token->token, $uid, $message);
+            }
+        } catch (ThunderApiUnauthorizedException $exception) {
+            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
+
+            $this->applicantActionError = $exception->getMessage();
+
+            return;
+        } catch (ThunderApiException $exception) {
+            $this->applicantActionError = $exception->getMessage();
+
+            return;
+        } catch (Throwable $throwable) {
+            report($throwable);
+
+            $this->applicantActionError = __('ThunderAPI could not be reached.');
+
+            return;
+        }
+
+        $this->showRejectApplicantModal = false;
+        $this->rejectApplicantReason = '';
+        $this->selectedApplicantUid = null;
+        $this->showApplicantModal = false;
+        $this->loadSquadronApplicants();
     }
 
     /**
@@ -1239,146 +1730,31 @@ class PeckUsersDashboard extends Component
     /**
      * @return array<string, list<mixed>>
      */
-    protected function rules(): array
+    protected function memberRules(): array
     {
-        $selectedGaijinId = $this->selectedGaijinId;
-
         return [
-            'form.gaijin_id' => [
+            'memberForm.gaijin_id' => [
                 'required',
                 'integer',
-                Rule::unique('peck_users', 'gaijin_id')->ignore($selectedGaijinId, 'gaijin_id'),
             ],
-            'form.username' => [
-                'required',
-                'string',
-                'max:255',
-                Rule::unique('peck_users', 'username')->ignore($selectedGaijinId, 'gaijin_id'),
-            ],
-            'form.discord_id' => [
+            'memberForm.discord_id' => [
                 'nullable',
                 'integer',
             ],
-            'form.tz' => [
+            'memberForm.tz' => [
                 'nullable',
                 'integer',
                 'between:-11,12',
             ],
-            'form.status' => [
-                'required',
-                Rule::in($this->allowedStatusesForCurrentForm()),
+            'memberForm.sqb_part' => [
+                'boolean',
             ],
-            'form.joindate' => [
-                'nullable',
-                'date_format:Y-m-d',
-            ],
-            'form.initiator' => [
+            'memberForm.owner' => [
                 'nullable',
                 'integer',
-                Rule::exists('officers', 'gaijin_id'),
-                function (string $attribute, mixed $value, Closure $fail): void {
-                    $gaijinId = $this->nullableInteger($this->form['gaijin_id'] ?? null);
-
-                    if ($value !== null && $gaijinId !== null && (int) $value === $gaijinId) {
-                        $fail(__('The initiator cannot be the same as the selected peck user.'));
-                    }
-                },
+                Rule::exists('peck_users', 'gaijin_id'),
             ],
         ];
-    }
-
-    /**
-     * @return list<string>
-     */
-    protected function allowedStatusesForCurrentForm(): array
-    {
-        $allowedStatuses = $this->editableStatuses();
-        $currentStatus = $this->form['status'] ?? null;
-
-        if (! is_string($currentStatus)) {
-            return $allowedStatuses;
-        }
-
-        if (! in_array($currentStatus, PeckUser::STATUSES, true)) {
-            return $allowedStatuses;
-        }
-
-        if (in_array($currentStatus, $allowedStatuses, true)) {
-            return $allowedStatuses;
-        }
-
-        $allowedStatuses[] = $currentStatus;
-
-        return $allowedStatuses;
-    }
-
-    /**
-     * @return array<string, list<mixed>>
-     */
-    protected function leaveInfoRules(): array
-    {
-        return [
-            'leaveInfoForm.type' => [
-                'required',
-                'string',
-                Rule::in($this->leaveInfoTypes()),
-            ],
-        ];
-    }
-
-    /**
-     * @return array<string, list<mixed>>
-     */
-    protected function createUserRules(): array
-    {
-        return [
-            'newUserForm.gaijin_id' => [
-                'required',
-                'integer',
-                Rule::unique('peck_users', 'gaijin_id'),
-            ],
-            'newUserForm.username' => [
-                'required',
-                'string',
-                'max:255',
-                Rule::unique('peck_users', 'username'),
-            ],
-            'newUserForm.discord_id' => [
-                'nullable',
-                'integer',
-            ],
-            'newUserForm.tz' => [
-                'nullable',
-                'integer',
-                'between:-11,12',
-            ],
-            'newUserForm.status' => [
-                'required',
-                Rule::in($this->editableStatuses()),
-            ],
-            'newUserForm.joindate' => [
-                'nullable',
-                'date_format:Y-m-d',
-            ],
-            'newUserForm.initiator' => [
-                'nullable',
-                'integer',
-                Rule::exists('officers', 'gaijin_id'),
-                function (string $attribute, mixed $value, Closure $fail): void {
-                    $gaijinId = $this->nullableInteger($this->newUserForm['gaijin_id'] ?? null);
-
-                    if ($value !== null && $gaijinId !== null && (int) $value === $gaijinId) {
-                        $fail(__('The initiator cannot be the same as the selected peck user.'));
-                    }
-                },
-            ],
-        ];
-    }
-
-    protected function showAltSaveErrorToast(string $message): void
-    {
-        $this->altSaveErrorMessage = $message;
-        $this->showAltSaveError = true;
     }
 
     public function render(): View
@@ -1386,143 +1762,368 @@ class PeckUsersDashboard extends Component
         $sortBy = $this->isSortableColumn($this->sortBy) ? $this->sortBy : 'gaijin_id';
         $sortDirection = $this->sortDirection === 'desc' ? 'desc' : 'asc';
 
-        $initiatorOptions = Officer::query()
-            ->select('officers.gaijin_id', 'officers.rank')
-            ->join('peck_users', 'peck_users.gaijin_id', '=', 'officers.gaijin_id')
-            ->with('peckUser')
-            ->orderBy('peck_users.username')
-            ->orderBy('officers.gaijin_id')
-            ->get();
+        $searchTerm = trim($this->search);
+        $unreachable = false;
+        $allMemberUsernames = null;
+
+        if ($this->isMembersSection() && $searchTerm !== '' && ! ctype_digit($searchTerm)) {
+            $allMemberUsernames = $this->resolveAllMemberUsernames($unreachable);
+        }
+
+        $usernameMatches = $this->matchingUsernameIds($allMemberUsernames, $searchTerm);
 
         $shownUsers = null;
-        $leaveInfoUsers = null;
-        $altMasterCards = null;
-        $contextUserCards = null;
-        $selectedContextEntries = collect();
-        $editingMasterSlaveUsers = collect();
 
-        if ($this->isUsersSection()) {
-            $shownUsers = PeckUser::query()
-                ->with('initiatorUser')
-                ->when($this->search !== '', function (Builder $query): void {
-                    $searchTerm = '%'.$this->search.'%';
+        if ($this->isMembersSection()) {
+            $membersQuery = PeckUser::query()
+                ->when($searchTerm !== '', function (Builder $query) use ($searchTerm, $usernameMatches): void {
+                    $like = '%'.$searchTerm.'%';
 
-                    $query->where(function (Builder $innerQuery) use ($searchTerm): void {
+                    $query->where(function (Builder $innerQuery) use ($like, $usernameMatches): void {
                         $innerQuery
-                            ->where('gaijin_id', 'like', $searchTerm)
-                            ->orWhere('username', 'like', $searchTerm)
-                            ->orWhere('discord_id', 'like', $searchTerm);
+                            ->where('gaijin_id', 'like', $like)
+                            ->orWhere('discord_id', 'like', $like);
+
+                        if ($usernameMatches !== []) {
+                            $innerQuery->orWhereIn('gaijin_id', $usernameMatches);
+                        }
                     });
-                })
-                ->when($this->filters['status'] !== null, function (Builder $query): void {
-                    $query->where('status', $this->filters['status']);
-                })
-                ->when($this->filters['tz'] !== null, function (Builder $query): void {
-                    $query->where('tz', $this->filters['tz']);
-                })
-                ->when($this->filters['joined_after'] !== null, function (Builder $query): void {
-                    $query->whereDate('joindate', '>=', $this->filters['joined_after']);
-                })
-                ->when($this->filters['joined_before'] !== null, function (Builder $query): void {
-                    $query->whereDate('joindate', '<=', $this->filters['joined_before']);
-                })
-                ->orderBy($sortBy, $sortDirection)
-                ->orderBy('gaijin_id')
-                ->paginate(15);
-        }
+                });
 
-        if ($this->isLeaveInfoSection()) {
-            $leaveInfoUsers = PeckUser::query()
-                ->with('leaveInfo')
-                ->where('status', 'ex_member')
-                ->when($this->search !== '', function (Builder $query): void {
-                    $searchTerm = '%'.$this->search.'%';
-
-                    $query->where(function (Builder $innerQuery) use ($searchTerm): void {
-                        $innerQuery
-                            ->where('gaijin_id', 'like', $searchTerm)
-                            ->orWhere('username', 'like', $searchTerm)
-                            ->orWhere('discord_id', 'like', $searchTerm);
-                    });
-                })
-                ->orderBy('username')
-                ->orderBy('gaijin_id')
-                ->paginate(15);
-        }
-
-        if ($this->isAltsSection()) {
-            $trimmedAltSearch = trim($this->altSearch);
-
-            $altMasterCards = PeckAlt::query()
-                ->selectRaw('peck_alts.owner_id, peck_users.username as owner_username, count(*) as slave_count')
-                ->join('peck_users', 'peck_users.gaijin_id', '=', 'peck_alts.owner_id')
-                ->when($trimmedAltSearch !== '', function (Builder $query) use ($trimmedAltSearch): void {
-                    $query->where('peck_users.username', 'like', '%'.$trimmedAltSearch.'%');
-                })
-                ->groupBy('peck_alts.owner_id', 'peck_users.username')
-                ->orderBy('peck_users.username')
-                ->orderBy('peck_alts.owner_id')
-                ->paginate(12, ['*'], 'alt-masters-page');
-
-            $slaveGaijinIds = collect($this->altFormSlaveGaijinIds)
-                ->map(fn (mixed $slaveGaijinId): int => (int) $slaveGaijinId)
-                ->unique()
-                ->values()
-                ->all();
-
-            if ($slaveGaijinIds !== []) {
-                $slaveUsers = PeckUser::query()
-                    ->whereIn('gaijin_id', $slaveGaijinIds)
-                    ->get(['gaijin_id', 'username'])
-                    ->keyBy('gaijin_id');
-
-                $editingMasterSlaveUsers = collect($slaveGaijinIds)
-                    ->map(fn (int $slaveGaijinId): ?PeckUser => $slaveUsers->get($slaveGaijinId))
-                    ->filter(fn (?PeckUser $peckUser): bool => $peckUser instanceof PeckUser)
-                    ->values();
+            if (in_array($sortBy, ['username', 'status', 'join_date'], true)) {
+                $shownUsers = $this->paginateMembersByResolvedColumn($membersQuery, $sortBy, $sortDirection, $unreachable);
+            } else {
+                $shownUsers = $membersQuery
+                    ->orderBy($sortBy, $sortDirection)
+                    ->orderBy('gaijin_id')
+                    ->paginate(15);
             }
         }
 
-        if ($this->isContextSection()) {
-            $trimmedContextSearch = trim($this->contextSearch);
+        $selectedMember = null;
+        $selectedMemberContexts = collect();
+        $selectedContextEntry = null;
+        $memberOwnerGaijinId = null;
 
-            $contextUserCards = PeckUser::query()
-                ->when($trimmedContextSearch !== '', function (Builder $query) use ($trimmedContextSearch): void {
-                    $query->where(function (Builder $innerQuery) use ($trimmedContextSearch): void {
-                        $innerQuery
-                            ->where('gaijin_id', 'like', '%'.$trimmedContextSearch.'%')
-                            ->orWhere('username', 'like', '%'.$trimmedContextSearch.'%')
-                            ->orWhere('discord_id', 'like', '%'.$trimmedContextSearch.'%');
-                    });
-                })
-                ->orderBy('username')
-                ->orderBy('gaijin_id')
-                ->paginate(12, ['*'], 'context-users-page');
+        if ($this->selectedMemberGaijinId !== null) {
+            $selectedMember = PeckUser::query()->find($this->selectedMemberGaijinId);
 
-            if ($this->selectedContextGaijinId !== null) {
-                $selectedContextEntries = PeckUserContext::query()
-                    ->where('user_id', $this->selectedContextGaijinId)
+            if ($selectedMember !== null) {
+                $memberOwnerGaijinId = $this->memberOwnerOf($selectedMember->gaijin_id);
+
+                $selectedMemberContexts = PeckUserContext::query()
+                    ->where('user_id', $selectedMember->gaijin_id)
                     ->orderBy('context_id')
-                    ->get()
-                    ->reject(fn (PeckUserContext $context): bool => ! $this->contextShowExpiredAbsences && $context->isExpiredOnceAbsence())
-                    ->values();
+                    ->get();
+
+                if ($this->selectedContextEntryId !== null) {
+                    $selectedContextEntry = $selectedMemberContexts->firstWhere('context_id', $this->selectedContextEntryId);
+                }
             }
+        }
+
+        $usernameGaijinIds = [];
+
+        foreach ($shownUsers ?? [] as $peckUser) {
+            $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
+        }
+
+        if ($this->selectedMemberGaijinId !== null) {
+            $usernameGaijinIds[] = $this->selectedMemberGaijinId;
+        }
+
+        if ($memberOwnerGaijinId !== null) {
+            $usernameGaijinIds[] = $memberOwnerGaijinId;
+        }
+
+        if ($this->showMemberModal && $this->memberEditMode) {
+            foreach (PeckUser::query()->get(['gaijin_id']) as $peckUser) {
+                $usernameGaijinIds[] = (int) $peckUser->gaijin_id;
+            }
+        }
+
+        if ($allMemberUsernames !== null) {
+            $usernames = $allMemberUsernames;
+        } else {
+            $usernames = $usernameGaijinIds === []
+                ? []
+                : app(ResolveUsernames::class)->resolve($usernameGaijinIds, $this->effectiveThunderToken(), $unreachable);
+        }
+
+        $memberStatuses = $this->resolveMemberStatuses($shownUsers, $selectedMember, $unreachable);
+        $memberJoinDates = $this->resolveMemberJoinDates($shownUsers, $selectedMember, $unreachable);
+        $memberJoinDate = $selectedMember !== null
+            ? ($memberJoinDates[$selectedMember->gaijin_id] ?? null)
+            : null;
+        $memberInitiator = $this->resolveMemberInitiator($selectedMember, $unreachable);
+        $selectedMemberRole = $this->resolveMemberRole($selectedMember, $unreachable);
+
+        $this->syncThunderApiErrorState($unreachable);
+
+        $ownerOptions = collect();
+
+        if ($this->showMemberModal && $this->memberEditMode && $this->selectedMemberGaijinId !== null) {
+            $trimmedOwnerSearch = mb_strtolower(trim($this->ownerSearch));
+
+            $ownerOptions = PeckUser::query()
+                ->where('gaijin_id', '!=', $this->selectedMemberGaijinId)
+                ->orderBy('gaijin_id')
+                ->get(['gaijin_id'])
+                ->filter(function (PeckUser $peckUser) use ($trimmedOwnerSearch, $usernames): bool {
+                    if ($trimmedOwnerSearch === '') {
+                        return true;
+                    }
+
+                    if (str_contains((string) $peckUser->gaijin_id, $trimmedOwnerSearch)) {
+                        return true;
+                    }
+
+                    $nickname = $usernames[$peckUser->gaijin_id] ?? null;
+
+                    return is_string($nickname) && str_contains(mb_strtolower($nickname), $trimmedOwnerSearch);
+                })
+                ->map(fn (PeckUser $peckUser): array => [
+                    'gaijin_id' => $peckUser->gaijin_id,
+                    'username' => $usernames[$peckUser->gaijin_id] ?? null,
+                ])
+                ->values();
         }
 
         return view('livewire.peck-users-dashboard', [
             'shownUsers' => $shownUsers,
-            'leaveInfoUsers' => $leaveInfoUsers,
-            'altMasterCards' => $altMasterCards,
-            'contextUserCards' => $contextUserCards,
-            'selectedContextEntries' => $selectedContextEntries,
-            'editingMasterSlaveUsers' => $editingMasterSlaveUsers,
-            'editableStatuses' => $this->editableStatuses(),
-            'filterableStatuses' => $this->filterableStatuses(),
-            'activeFilterCount' => $this->activeFilterCount(),
-            'initiatorOptions' => $initiatorOptions,
-            'leaveInfoTypes' => $this->leaveInfoTypes(),
+            'selectedMember' => $selectedMember,
+            'selectedMemberContexts' => $selectedMemberContexts,
+            'selectedContextEntry' => $selectedContextEntry,
+            'memberOwnerGaijinId' => $memberOwnerGaijinId,
+            'memberUsername' => $usernames[$this->selectedMemberGaijinId] ?? null,
+            'memberStatuses' => $memberStatuses,
+            'memberJoinDates' => $memberJoinDates,
+            'memberJoinDate' => $memberJoinDate,
+            'memberInitiator' => $memberInitiator,
+            'selectedMemberRole' => $selectedMemberRole,
+            'ownerOptions' => $ownerOptions,
             'contextTypes' => $this->contextTypes(),
+            'assignableRoles' => $this->assignableRoles(),
+            'usernames' => $usernames,
         ]);
+    }
+
+    /**
+     * Paginate the members list by a value (username or status) that is only
+     * known after each member has been resolved through ThunderAPI.
+     *
+     * @return LengthAwarePaginator<PeckUser>
+     */
+    protected function paginateMembersByResolvedColumn(Builder $query, string $column, string $direction, bool &$unreachable): LengthAwarePaginator
+    {
+        $members = $query->get();
+
+        $values = match ($column) {
+            'status' => $this->resolveStatusesFor($members, $unreachable),
+            'join_date' => $this->resolveJoinDatesFor($members, $unreachable),
+            default => $this->resolveUsernamesFor($members, $unreachable),
+        };
+
+        $sorted = $members->sort(function (PeckUser $left, PeckUser $right) use ($values, $direction): int {
+            $leftValue = mb_strtolower((string) ($values[$left->gaijin_id] ?? ''));
+            $rightValue = mb_strtolower((string) ($values[$right->gaijin_id] ?? ''));
+
+            $comparison = $leftValue <=> $rightValue;
+
+            if ($comparison === 0) {
+                return $left->gaijin_id <=> $right->gaijin_id;
+            }
+
+            return $direction === 'desc' ? -$comparison : $comparison;
+        })->values();
+
+        $page = max(1, (int) $this->getPage());
+        $perPage = 15;
+
+        return new LengthAwarePaginator(
+            $sorted->forPage($page, $perPage)->values(),
+            $sorted->count(),
+            $perPage,
+            $page,
+        );
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return list<int>
+     */
+    protected function memberGaijinIds(iterable $members): array
+    {
+        $gaijinIds = [];
+
+        foreach ($members as $peckUser) {
+            $gaijinIds[] = (int) $peckUser->gaijin_id;
+        }
+
+        return array_values(array_unique($gaijinIds));
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return array<int, string>
+     */
+    protected function resolveUsernamesFor(iterable $members, bool &$unreachable): array
+    {
+        $gaijinIds = $this->memberGaijinIds($members);
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        $usernamesUnreachable = false;
+        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds, $this->effectiveThunderToken(), $usernamesUnreachable);
+        $unreachable = $unreachable || $usernamesUnreachable;
+
+        return $usernames;
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return array<int, ?string>
+     */
+    protected function resolveStatusesFor(iterable $members, bool &$unreachable): array
+    {
+        $gaijinIds = $this->memberGaijinIds($members);
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        $statuses = [];
+
+        foreach ($gaijinIds as $gaijinId) {
+            $statuses[$gaijinId] = $resolver->statusFor($gaijinId, $roster);
+        }
+
+        return $statuses;
+    }
+
+    /**
+     * @param  LengthAwarePaginator<PeckUser>|null  $shownUsers
+     * @return array<int, ?string>
+     */
+    protected function resolveMemberStatuses(mixed $shownUsers, ?PeckUser $selectedMember, bool &$unreachable): array
+    {
+        if (! $this->isMembersSection()) {
+            return [];
+        }
+
+        $members = [];
+
+        foreach ($shownUsers ?? [] as $peckUser) {
+            $members[] = $peckUser;
+        }
+
+        if ($selectedMember !== null) {
+            $members[] = $selectedMember;
+        }
+
+        return $this->resolveStatusesFor($members, $unreachable);
+    }
+
+    /**
+     * Resolve the join dates for the shown members and the selected member.
+     *
+     * @param  LengthAwarePaginator<PeckUser>|null  $shownUsers
+     * @return array<int, ?string>
+     */
+    protected function resolveMemberJoinDates(mixed $shownUsers, ?PeckUser $selectedMember, bool &$unreachable): array
+    {
+        if (! $this->isMembersSection()) {
+            return [];
+        }
+
+        $members = [];
+
+        foreach ($shownUsers ?? [] as $peckUser) {
+            $members[] = $peckUser;
+        }
+
+        if ($selectedMember !== null) {
+            $members[] = $selectedMember;
+        }
+
+        return $this->resolveJoinDatesFor($members, $unreachable);
+    }
+
+    /**
+     * @param  iterable<int, PeckUser>  $members
+     * @return array<int, ?string>
+     */
+    protected function resolveJoinDatesFor(iterable $members, bool &$unreachable): array
+    {
+        $gaijinIds = $this->memberGaijinIds($members);
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        $joinDates = [];
+
+        foreach ($gaijinIds as $gaijinId) {
+            $joinTimestamp = $resolver->joinDateFor($gaijinId, $roster);
+
+            $joinDates[$gaijinId] = $joinTimestamp !== null
+                ? Carbon::createFromTimestamp($joinTimestamp)->format('Y-m-d')
+                : null;
+        }
+
+        return $joinDates;
+    }
+
+    /**
+     * Resolve the selected member's initiator (recruiter) from the squadron roster.
+     */
+    protected function resolveMemberInitiator(?PeckUser $selectedMember, bool &$unreachable): ?string
+    {
+        if (! $this->isMembersSection() || $selectedMember === null) {
+            return null;
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        $initiator = $resolver->initiatorFor($selectedMember->gaijin_id, $roster);
+
+        if ($initiator === null) {
+            return null;
+        }
+
+        return $initiator['nickname'];
+    }
+
+    /**
+     * Resolve the selected member's squadron role from the roster.
+     */
+    protected function resolveMemberRole(?PeckUser $selectedMember, bool &$unreachable): ?string
+    {
+        if (! $this->isMembersSection() || $selectedMember === null) {
+            return null;
+        }
+
+        $rosterUnreachable = false;
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $unreachable = $unreachable || $rosterUnreachable;
+
+        return $resolver->roleFor($selectedMember->gaijin_id, $roster);
     }
 
     protected function nullableString(mixed $value): ?string

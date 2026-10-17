@@ -6,7 +6,6 @@ use Database\Factories\OfficerFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Officer extends Model
 {
@@ -61,10 +60,5 @@ class Officer extends Model
     public function peckUser(): BelongsTo
     {
         return $this->belongsTo(PeckUser::class, 'gaijin_id', 'gaijin_id');
-    }
-
-    public function initiatedUsers(): HasMany
-    {
-        return $this->hasMany(PeckUser::class, 'initiator', 'gaijin_id');
     }
 }
