@@ -99,7 +99,7 @@ Response `202`:
 `GET /api/v1/users`  
 
 Query parameters:  
-- `search` (string, optional, max 255): matches `gaijin_id` or `discord_id` using partial match.  
+- `search` (string, optional, max 255): matches `gaijin_id`, `discord_id`, or `username` using a case-insensitive partial match. Non-numeric terms are also matched against ThunderAPI nicknames.  
 - `status` (string, optional): `member | applicant | ex_member`  
 - `tz` (integer, optional): `-11..12`  
 - `sort_by` (string, optional): `gaijin_id | status | discord_id | tz | sqb_part` (default `gaijin_id`)  

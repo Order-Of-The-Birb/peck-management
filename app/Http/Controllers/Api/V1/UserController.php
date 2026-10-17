@@ -47,14 +47,22 @@ class UserController extends Controller
         $perPage = $validated['per_page'] ?? 15;
         $page = $validated['page'] ?? 1;
 
+        $usernameMatches = $searchTerm !== null && $searchTerm !== '' && ! ctype_digit($searchTerm)
+            ? $this->matchingUsernameIds($this->resolveAllUsernames(), $searchTerm)
+            : [];
+
         $query = PeckUser::query()
-            ->when($searchTerm !== null && $searchTerm !== '', function ($query) use ($searchTerm): void {
+            ->when($searchTerm !== null && $searchTerm !== '', function ($query) use ($searchTerm, $usernameMatches): void {
                 $likeSearchTerm = '%'.$searchTerm.'%';
 
-                $query->where(function ($innerQuery) use ($likeSearchTerm): void {
+                $query->where(function ($innerQuery) use ($likeSearchTerm, $usernameMatches): void {
                     $innerQuery
                         ->where('gaijin_id', 'like', $likeSearchTerm)
                         ->orWhere('discord_id', 'like', $likeSearchTerm);
+
+                    if ($usernameMatches !== []) {
+                        $innerQuery->orWhereIn('gaijin_id', $usernameMatches);
+                    }
                 });
             })
             ->when(array_key_exists('tz', $validated) && $validated['tz'] !== null, function ($query) use ($validated): void {
@@ -107,6 +115,47 @@ class UserController extends Controller
         $users->each(function (PeckUser $user) use ($usernames): void {
             $user->setAttribute('username', $usernames[(int) $user->gaijin_id] ?? null);
         });
+    }
+
+    /**
+     * Resolve nicknames for every stored user so the API can be searched by username.
+     *
+     * @return array<int, string>
+     */
+    private function resolveAllUsernames(): array
+    {
+        $gaijinIds = PeckUser::query()
+            ->pluck('gaijin_id')
+            ->map(fn (mixed $gaijinId): int => (int) $gaijinId)
+            ->values()
+            ->all();
+
+        if ($gaijinIds === []) {
+            return [];
+        }
+
+        return app(ResolveUsernames::class)->resolve($gaijinIds);
+    }
+
+    /**
+     * Return the Gaijin IDs whose resolved nickname contains the search term.
+     *
+     * @param  array<int, string>  $usernames
+     * @return list<int>
+     */
+    private function matchingUsernameIds(array $usernames, string $term): array
+    {
+        $term = mb_strtolower($term);
+
+        $matches = [];
+
+        foreach ($usernames as $gaijinId => $nickname) {
+            if (is_string($nickname) && str_contains(mb_strtolower($nickname), $term)) {
+                $matches[] = (int) $gaijinId;
+            }
+        }
+
+        return $matches;
     }
 
     /**

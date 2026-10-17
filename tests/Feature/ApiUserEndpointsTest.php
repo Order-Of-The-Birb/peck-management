@@ -71,6 +71,43 @@ test('api users index returns filtered records', function () {
         ->not->toContain($nonMatchingUser->gaijin_id);
 });
 
+test('api users index searches by username', function () {
+    config()->set('peck.squadron_id', '1061551');
+    config()->set('peck.thunderapi_server.email', 'server@example.com');
+    config()->set('peck.thunderapi_server.password', 'server-password');
+
+    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
+
+    $matchingUser = PeckUser::factory()->create([
+        'gaijin_id' => 800010,
+    ]);
+
+    $nonMatchingUser = PeckUser::factory()->create([
+        'gaijin_id' => 800011,
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [],
+            'candidates' => [],
+        ], 200),
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            (string) $matchingUser->gaijin_id => ['nick' => 'Maho_Yoshino'],
+            (string) $nonMatchingUser->gaijin_id => ['nick' => 'Some_Other_Name'],
+        ], 200),
+    ]);
+
+    $response = $this->getJson('/api/v1/users?search=Maho');
+
+    $response->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.gaijin_id', $matchingUser->gaijin_id)
+        ->assertJsonPath('data.0.username', 'Maho_Yoshino');
+
+    expect(collect($response->json('data'))->pluck('gaijin_id'))
+        ->not->toContain($nonMatchingUser->gaijin_id);
+});
+
 test('api users show returns a single record with derived status', function () {
     config()->set('peck.squadron_id', '1061551');
     config()->set('peck.thunderapi_server.email', 'server@example.com');
