@@ -8,10 +8,8 @@ use App\Http\Requests\StoreApiUserContextRequest;
 use App\Http\Requests\StoreApiUserRequest;
 use App\Http\Requests\UpdateApiUserContextRequest;
 use App\Http\Requests\UpdateApiUserRequest;
-use App\Http\Requests\UpsertApiUserLeaveInfoRequest;
 use App\Http\Resources\PeckUserContextResource;
 use App\Http\Resources\PeckUserResource;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
 use Illuminate\Http\JsonResponse;
@@ -142,31 +140,6 @@ class UserController extends Controller
         $peckUser->save();
 
         return new PeckUserResource($peckUser);
-    }
-
-    public function showLeaveInfo(PeckUser $peckUser): JsonResponse
-    {
-        $leaveInfoType = $peckUser->leaveInfo()->value('type');
-
-        return response()->json([
-            'status' => 'success',
-            'data' => $leaveInfoType,
-        ]);
-    }
-
-    public function upsertLeaveInfo(UpsertApiUserLeaveInfoRequest $request, PeckUser $peckUser): JsonResponse
-    {
-        $validated = $request->validated();
-
-        PeckLeaveInfo::query()->updateOrCreate(
-            ['user_id' => $peckUser->gaijin_id],
-            ['type' => $validated['type']],
-        );
-
-        return response()->json([
-            'status' => 'success',
-            'data' => $validated['type'],
-        ]);
     }
 
     public function showContexts(PeckUser $peckUser): JsonResponse

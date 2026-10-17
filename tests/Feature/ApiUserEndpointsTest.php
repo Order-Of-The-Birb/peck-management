@@ -2,7 +2,6 @@
 
 use App\Models\ApiKey;
 use App\Models\Officer;
-use App\Models\PeckLeaveInfo;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
 use App\Models\ThunderApiServerToken;
@@ -89,25 +88,21 @@ test('api users show returns a single record with derived status', function () {
         ->assertJsonPath('data.status', 'member');
 });
 
-test('api users leave info show returns null or leave type', function () {
+test('api users leave info endpoints no longer exist', function () {
     $peckUser = PeckUser::factory()->create([
         'gaijin_id' => 810050,
     ]);
 
     $this->getJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info')
-        ->assertOk()
-        ->assertJsonPath('status', 'success')
-        ->assertJsonPath('data', null);
+        ->assertNotFound();
 
-    PeckLeaveInfo::query()->create([
-        'user_id' => $peckUser->gaijin_id,
-        'type' => PeckLeaveInfo::TYPE_LEFT_SERVER,
-    ]);
+    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
+        'type' => 'Left',
+    ])->assertNotFound();
 
-    $this->getJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info')
-        ->assertOk()
-        ->assertJsonPath('status', 'success')
-        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT_SERVER);
+    $this->patchJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
+        'type' => 'Left',
+    ])->assertNotFound();
 });
 
 test('api users context show returns public per-user context entries', function () {
@@ -221,58 +216,6 @@ test('api users store creates a record for valid api key users', function () {
     expect($createdUser?->discord_id)->toBe(123456789012345678);
 });
 
-test('api users leave info upsert endpoint creates and updates leave info', function () {
-    $admin = User::query()->create([
-        'name' => 'API Leave Info Admin',
-        'email' => 'api-leave-info-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $apiToken = ApiKey::issueForOwner($admin->id);
-
-    $peckUser = PeckUser::factory()->create([
-        'gaijin_id' => 820110,
-    ]);
-
-    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
-        'token' => $apiToken,
-        'type' => PeckLeaveInfo::TYPE_LEFT,
-    ])->assertOk()
-        ->assertJsonPath('status', 'success')
-        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT);
-
-    expect(PeckLeaveInfo::query()->find($peckUser->gaijin_id)?->type)->toBe(PeckLeaveInfo::TYPE_LEFT);
-
-    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
-        'token' => $apiToken,
-        'type' => PeckLeaveInfo::TYPE_LEFT_SERVER,
-    ])->assertOk()
-        ->assertJsonPath('status', 'success')
-        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT_SERVER);
-
-    expect(PeckLeaveInfo::query()->find($peckUser->gaijin_id)?->type)->toBe(PeckLeaveInfo::TYPE_LEFT_SERVER);
-
-    $this->patchJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
-        'token' => $apiToken,
-        'type' => PeckLeaveInfo::TYPE_LEFT_SQUADRON,
-    ])->assertOk()
-        ->assertJsonPath('status', 'success')
-        ->assertJsonPath('data', PeckLeaveInfo::TYPE_LEFT_SQUADRON);
-
-    expect(PeckLeaveInfo::query()->find($peckUser->gaijin_id)?->type)->toBe(PeckLeaveInfo::TYPE_LEFT_SQUADRON);
-
-    $this->postJson('/api/v1/users/'.$peckUser->gaijin_id.'/leave_info', [
-        'token' => $apiToken,
-        'type' => 'InvalidLeaveType',
-    ])->assertUnprocessable()
-        ->assertJsonValidationErrors(['type']);
-});
-
 test('api users context endpoints create split recurring entries and modify them', function () {
     $admin = User::query()->create([
         'name' => 'API Context Admin',
@@ -337,34 +280,6 @@ test('api users context endpoints create split recurring entries and modify them
             ->pluck('context_id')
             ->all()
     )->toBe([0, 1, 2]);
-});
-
-test('api users leave info endpoints return 404 when user is missing', function () {
-    $admin = User::query()->create([
-        'name' => 'API Leave Info 404 Admin',
-        'email' => 'api-leave-info-404-admin@example.com',
-        'password' => 'password',
-    ]);
-
-    $admin->forceFill([
-        'email_verified_at' => now(),
-        'level' => 1,
-    ])->save();
-
-    $apiToken = ApiKey::issueForOwner($admin->id);
-
-    $this->getJson('/api/v1/users/99999111/leave_info')
-        ->assertNotFound();
-
-    $this->postJson('/api/v1/users/99999111/leave_info', [
-        'token' => $apiToken,
-        'type' => PeckLeaveInfo::TYPE_LEFT,
-    ])->assertNotFound();
-
-    $this->patchJson('/api/v1/users/99999111/leave_info', [
-        'token' => $apiToken,
-        'type' => PeckLeaveInfo::TYPE_LEFT_SERVER,
-    ])->assertNotFound();
 });
 
 test('api users update updates discord id and timezone', function () {

@@ -15,8 +15,6 @@ Protected endpoints:
 - `POST /api/invalidate-cache`  
 - `POST /api/v1/users`  
 - `PATCH /api/v1/users/{gaijin_id}`  
-- `POST /api/v1/users/{gaijin_id}/leave_info`  
-- `PATCH /api/v1/users/{gaijin_id}/leave_info`  
 - `POST /api/v1/users/{gaijin_id}/context`  
 - `PATCH /api/v1/users/{gaijin_id}/context/{id}`  
 - `DELETE /api/v1/users/{gaijin_id}/context/{id}`  
@@ -37,6 +35,9 @@ When the key is missing/invalid, the API returns HTTP `401`:
 
 If the key owner is authenticated but not allowed (`level < 1`), the API returns HTTP `403`.  
 
+## ThunderAPI Authentication  
+Read endpoints that need squadron data (`GET /api/v1/applicants`, `GET /api/v1/logs`, and the derived `status` on user responses) use the server-wide ThunderAPI account (`THUNDERAPI_EMAIL` / `THUNDERAPI_PASS`) instead of any per-user token. If the ThunderAPI server account or `SQUADRON_ID` is not configured, those endpoints return HTTP `503`.  
+
 ## User Object  
 User responses return these fields:  
 
@@ -54,14 +55,8 @@ Field notes:
 - `gaijin_id` (integer): Primary identifier.  
 - `discord_id` (integer, nullable).  
 - `tz` (integer, nullable, range `-11` to `12`).  
-- `status` (string): one of `applicant`, `unverified`, `ex_member`, `member`.  
+- `status` (string): one of `member`, `applicant`, `ex_member` (or `null` when the squadron roster cannot be resolved).  
 - `sqb_part` (boolean, nullable).  
-
-## Leave Info Type  
-Allowed values:  
-- `Left`  
-- `LeftServer`  
-- `LeftSquadron`  
 
 ## User Context Types  
 Allowed values:  
@@ -101,7 +96,7 @@ Response `202`:
 
 Query parameters:  
 - `search` (string, optional, max 255): matches `gaijin_id` or `discord_id` using partial match.  
-- `status` (string, optional): `applicant | unverified | ex_member | member`  
+- `status` (string, optional): `member | applicant | ex_member`  
 - `tz` (integer, optional): `-11..12`  
 - `sort_by` (string, optional): `gaijin_id | status | discord_id | tz | sqb_part` (default `gaijin_id`)  
 - `sort_direction` (string, optional): `asc | desc` (default `asc`)  
@@ -138,7 +133,7 @@ Response `200`:
 		"gaijin_id": 810001,  
 		"discord_id": null,  
 		"tz": null,  
-		"status": "unverified",  
+		"status": "applicant",  
 		"sqb_part": null  
 	}  
 }  
@@ -152,7 +147,6 @@ Possible errors:
 
 Required body fields:  
 - `gaijin_id` (integer, unique)  
-- `status` (`applicant | unverified | ex_member | member`)  
 
 Optional body fields:  
 - `discord_id` (integer, nullable)  
@@ -185,7 +179,6 @@ Possible errors:
 Body fields are all optional, but validated when present:  
 - `discord_id` (integer, nullable)  
 - `tz` (integer, nullable, `-11..12`)  
-- `status` (`applicant | unverified | ex_member | member`)  
 - `sqb_part` (boolean, nullable)  
 - `token` (string, if authenticating via body)  
 
@@ -203,62 +196,13 @@ Response `200`:
 }  
 ```  
 
-Behavior note:  
-- If a user changes from `ex_member` to any other status, their `leave_info` record is deleted.  
-
 Possible errors:  
 - `401` invalid/missing API key  
 - `403` authenticated key owner is not authorized (`level < 1`)  
 - `404` user not found  
 - `422` validation errors  
 
-### 5) Get Leave Info  
-`GET /api/v1/users/{gaijin_id}/leave_info`  
-
-Response `200`:  
-
-```json  
-{  
-	"status": "success",  
-	"data": "LeftServer"  
-}  
-```  
-
-If no leave info exists, `data` is `null`.  
-
-Possible errors:  
-- `404` user not found  
-
-### 6) Create/Update Leave Info via POST (Protected)  
-`POST /api/v1/users/{gaijin_id}/leave_info`  
-
-### 7) Create/Update Leave Info via PATCH (Protected)  
-`PATCH /api/v1/users/{gaijin_id}/leave_info`  
-
-Both endpoints use the same behavior (`upsert`):  
-- Creates `leave_info` if missing  
-- Updates existing `leave_info` if present  
-
-Body fields:  
-- `type` (required): `Left | LeftServer | LeftSquadron`  
-- `token` (string, if authenticating via body)  
-
-Response `200`:  
-
-```json  
-{  
-	"status": "success",  
-	"data": "LeftSquadron"  
-}  
-```  
-
-Possible errors:  
-- `401` invalid/missing API key  
-- `403` authenticated key owner is not authorized (`level < 1`)  
-- `404` user not found  
-- `422` validation errors  
-
-### 8) Get User Context  
+### 5) Get User Context  
 `GET /api/v1/users/{gaijin_id}/context`  
 
 This endpoint is public. It returns a direct JSON array.  
@@ -294,7 +238,7 @@ Response `200`:
 Possible errors:  
 - `404` user not found  
 
-### 9) Create User Context (Protected)  
+### 6) Create User Context (Protected)  
 `POST /api/v1/users/{gaijin_id}/context`  
 
 Body fields:  
@@ -327,7 +271,7 @@ Possible errors:
 - `404` user not found  
 - `422` validation errors  
 
-### 10) Update User Context (Protected)  
+### 7) Update User Context (Protected)  
 `PATCH /api/v1/users/{gaijin_id}/context/{id}`  
 
 Body fields are optional, but the resulting context must remain valid for its type.  
@@ -356,7 +300,7 @@ Possible errors:
 - `404` user or context entry not found  
 - `422` validation errors  
 
-### 11) Delete User Context (Protected)  
+### 8) Delete User Context (Protected)  
 `DELETE /api/v1/users/{gaijin_id}/context/{id}`  
 
 Response `204`: empty body.  
@@ -366,6 +310,76 @@ Possible errors:
 - `403` authenticated key owner is not authorized (`level < 1`)  
 - `404` user or context entry not found  
 
+### 9) List Squadron Applicants  
+`GET /api/v1/applicants`  
+
+This endpoint is public. It uses the server-wide ThunderAPI account and the configured `SQUADRON_ID`.  
+
+Response `200`:  
+
+```json  
+{  
+	"data": [  
+		{  
+			"uid": "820003",  
+			"nickname": "Maho_Yoshino",  
+			"timestamp": 1790000000,  
+			"comment": "Hello",  
+			"country": "DE",  
+			"timezone": 2  
+		}  
+	]  
+}  
+```  
+
+Field notes:  
+- `uid` (string): applicant Gaijin ID.  
+- `nickname` (string).  
+- `timestamp` (integer, nullable): application timestamp (Unix seconds).  
+- `comment` (string).  
+- `country` (string, nullable): ISO country code, when available.  
+- `timezone` (integer, nullable): UTC offset in hours, when available.  
+
+Possible errors:  
+- `503` squadron ID or ThunderAPI server account is not configured  
+- `502` ThunderAPI returned an error  
+- `503` ThunderAPI could not be reached  
+
+### 10) List Squadron Logs  
+`GET /api/v1/logs`  
+
+This endpoint is public. It uses the server-wide ThunderAPI account and the configured `SQUADRON_ID`.  
+
+Query parameters:  
+- `limit` (integer, optional): `1..50` (default `10`)  
+- `from_entry` (string, optional): pagination cursor from a previous response's `lastLog`  
+
+Response `200`:  
+
+```json  
+{  
+	"lastLog": "log-marker-abc",  
+	"logs": [  
+		{  
+			"timestamp": 1790000000,  
+			"action": { "value": 1, "detail": "Accept membership request" },  
+			"admin": { "_id": 111, "nickname": "AdminOne" },  
+			"affected": { "_id": 222, "nickname": "NewMember" }  
+		}  
+	]  
+}  
+```  
+
+Field notes:  
+- `lastLog` (string): pagination cursor. Pass it back as `from_entry` to fetch the next page.  
+- `logs` (array): raw ThunderAPI log entries. See the ThunderAPI documentation for the full entry shape.  
+
+Possible errors:  
+- `422` invalid query parameters  
+- `503` squadron ID or ThunderAPI server account is not configured  
+- `502` ThunderAPI returned an error  
+- `503` ThunderAPI could not be reached  
+
 ## Validation Error Shape  
 Validation failures follow Laravel's default JSON validation format (HTTP `422`), for example:  
 
@@ -373,8 +387,8 @@ Validation failures follow Laravel's default JSON validation format (HTTP `422`)
 {  
 	"message": "The given data was invalid.",  
 	"errors": {  
-		"status": [  
-		"The selected status is invalid."  
+		"tz": [  
+		"The timezone must be between -11 and 12."  
 		]  
 	}  
 }  
