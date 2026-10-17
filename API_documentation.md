@@ -47,7 +47,8 @@ User responses return these fields:
 	"discord_id": 123456789012345678,  
 	"tz": 1,  
 	"status": "member",  
-	"sqb_part": null  
+	"sqb_part": null,  
+	"joined_at": 1790000000  
 }  
 ```  
 
@@ -57,6 +58,8 @@ Field notes:
 - `tz` (integer, nullable, range `-11` to `12`).  
 - `status` (string): one of `member`, `applicant`, `ex_member` (or `null` when the squadron roster cannot be resolved).  
 - `sqb_part` (boolean, nullable).  
+- `username` (string, nullable): ThunderAPI nickname, returned only by `GET /api/v1/users`.  
+- `joined_at` (integer, nullable): Unix timestamp of when the member joined the squadron.  
 
 ## User Context Types  
 Allowed values:  
@@ -113,7 +116,9 @@ Response `200`:
 		"discord_id": null,  
 		"tz": 2,  
 		"status": "member",  
-		"sqb_part": null  
+		"sqb_part": null,  
+		"joined_at": 1790000000,  
+		"username": "Maho_Yoshino"  
 		}  
 	]  
 }  
@@ -121,6 +126,7 @@ Response `200`:
 
 Notes:  
 - This endpoint does not return pagination `links` or `meta`.  
+- Each user includes `username`, resolved via the server-wide ThunderAPI account.  
 
 ### 2) Get Single User  
 `GET /api/v1/users/{gaijin_id}`  

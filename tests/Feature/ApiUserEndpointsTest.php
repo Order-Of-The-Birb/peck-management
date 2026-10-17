@@ -46,8 +46,11 @@ test('api users index returns filtered records', function () {
 
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
-            'members' => [['uid' => (string) $matchingUser->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'members' => [['uid' => (string) $matchingUser->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1790000000]],
             'candidates' => [],
+        ], 200),
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            (string) $matchingUser->gaijin_id => ['nick' => 'Maho_Yoshino'],
         ], 200),
     ]);
 
@@ -57,8 +60,12 @@ test('api users index returns filtered records', function () {
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.gaijin_id', $matchingUser->gaijin_id)
         ->assertJsonPath('data.0.status', 'member')
-        ->assertJsonMissingPath('data.0.username')
+        ->assertJsonPath('data.0.username', 'Maho_Yoshino')
+        ->assertJsonPath('data.0.joined_at', 1790000000)
         ->assertJsonMissingPath('data.0.initiator');
+
+    Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://thunder.example/v1/users/terse')
+        && $request->hasHeader('Authorization', 'Bearer server-token'));
 
     expect(collect($response->json('data'))->pluck('gaijin_id'))
         ->not->toContain($nonMatchingUser->gaijin_id);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\ResolveSquadronRoster;
+use App\Actions\ResolveUsernames;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreApiUserContextRequest;
 use App\Http\Requests\StoreApiUserRequest;
@@ -65,25 +66,47 @@ class UserController extends Controller
         if ($statusFilter !== null || $sortBy === 'status') {
             $users = $query->orderBy('gaijin_id')->get();
 
-            return PeckUserResource::collection(
-                $this->filterByDerivedStatus($users, $statusFilter, $sortBy, $sortDirection, $page, $perPage)
-            );
+            $users = $this->filterByDerivedStatus($users, $statusFilter, $sortBy, $sortDirection, $page, $perPage);
+        } else {
+            $users = $query
+                ->when(in_array($sortBy, ['tz', 'sqb_part'], true), function ($query) use ($sortBy, $sortDirection): void {
+                    $column = $sortBy === 'tz' ? 'timezone' : 'sqb_part';
+                    $query->orderByRaw(
+                        '(SELECT '.$column.' FROM peck_user_data WHERE peck_user_data.discord_id = peck_users.discord_id) '.$sortDirection,
+                    );
+                }, function ($query) use ($sortBy, $sortDirection): void {
+                    $query->orderBy($sortBy, $sortDirection);
+                })
+                ->orderBy('gaijin_id')
+                ->forPage($page, $perPage)
+                ->get();
         }
 
-        $users = $query
-            ->when(in_array($sortBy, ['tz', 'sqb_part'], true), function ($query) use ($sortBy, $sortDirection): void {
-                $column = $sortBy === 'tz' ? 'timezone' : 'sqb_part';
-                $query->orderByRaw(
-                    '(SELECT '.$column.' FROM peck_user_data WHERE peck_user_data.discord_id = peck_users.discord_id) '.$sortDirection,
-                );
-            }, function ($query) use ($sortBy, $sortDirection): void {
-                $query->orderBy($sortBy, $sortDirection);
-            })
-            ->orderBy('gaijin_id')
-            ->forPage($page, $perPage)
-            ->get();
+        $this->attachUsernames($users);
 
         return PeckUserResource::collection($users);
+    }
+
+    /**
+     * Resolve and attach ThunderAPI usernames to the given users.
+     *
+     * @param  Collection<int, PeckUser>  $users
+     */
+    private function attachUsernames(Collection $users): void
+    {
+        $gaijinIds = $users
+            ->map(fn (PeckUser $user): int => (int) $user->gaijin_id)
+            ->filter(fn (int $gaijinId): bool => $gaijinId > 0)
+            ->values()
+            ->all();
+
+        $usernames = $gaijinIds === []
+            ? []
+            : app(ResolveUsernames::class)->resolve($gaijinIds);
+
+        $users->each(function (PeckUser $user) use ($usernames): void {
+            $user->setAttribute('username', $usernames[(int) $user->gaijin_id] ?? null);
+        });
     }
 
     /**

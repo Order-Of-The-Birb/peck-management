@@ -22,12 +22,19 @@ class PeckUserResource extends JsonResource
         $resolver = app(ResolveSquadronRoster::class);
         $roster = $resolver->resolve();
 
-        return [
+        $data = [
             'gaijin_id' => $peckUser->gaijin_id,
             'discord_id' => $peckUser->discord_id,
             'tz' => $peckUser->tz,
             'status' => $resolver->statusFor((int) $peckUser->gaijin_id, $roster),
             'sqb_part' => $peckUser->sqb_part,
+            'joined_at' => $resolver->joinDateFor((int) $peckUser->gaijin_id, $roster),
         ];
+
+        if (array_key_exists('username', $peckUser->getAttributes())) {
+            $data['username'] = $peckUser->username;
+        }
+
+        return $data;
     }
 }
