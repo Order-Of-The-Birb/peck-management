@@ -13,6 +13,7 @@ Protected endpoints require:
 
 Protected endpoints:  
 - `POST /api/invalidate-cache`  
+- `GET /api/v1/server-token`  
 - `POST /api/v1/users`  
 - `PATCH /api/v1/users/{gaijin_id}`  
 - `POST /api/v1/users/{gaijin_id}/context`  
@@ -385,6 +386,26 @@ Possible errors:
 - `503` squadron ID or ThunderAPI server account is not configured  
 - `502` ThunderAPI returned an error  
 - `503` ThunderAPI could not be reached  
+
+### 11) Get Server ThunderAPI Token (Protected)  
+`GET /api/v1/server-token`  
+
+Returns the active server-wide ThunderAPI token. Requires an API key owned by a user with write access (`level >= 1` and a verified email).  
+
+Response `200`:  
+
+```json  
+{  
+	"token": "server-token"  
+}  
+```  
+
+Possible errors:  
+- `401` invalid/missing API key  
+- `403` authenticated key owner is not authorized (`level < 1`)  
+- `503` ThunderAPI server account is not configured  
+- `503` ThunderAPI could not be reached  
+- `502` ThunderAPI token could not be resolved  
 
 ## Validation Error Shape  
 Validation failures follow Laravel's default JSON validation format (HTTP `422`), for example:  
