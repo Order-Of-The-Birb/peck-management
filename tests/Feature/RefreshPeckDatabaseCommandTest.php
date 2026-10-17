@@ -23,9 +23,8 @@ test('peck refresh command imports users from ThunderAPI', function () {
                 [
                     'uid' => '900001',
                     'nick' => 'birb_member@steam',
-                    'role' => 3,
-                    'date' => 1_710_000_000,
-                    'initiator' => null,
+                    'rank' => ['name' => 'PRIVATE', 'value' => 3],
+                    'joined_at' => 1_710_000_000,
                 ],
             ],
         ], 200),
@@ -61,9 +60,8 @@ test('peck refresh command dry run does not write users', function () {
                 [
                     'uid' => '900002',
                     'nick' => 'dry_run_member',
-                    'role' => 3,
-                    'date' => 1_710_000_100,
-                    'initiator' => null,
+                    'rank' => ['name' => 'PRIVATE', 'value' => 3],
+                    'joined_at' => 1_710_000_100,
                 ],
             ],
         ], 200),

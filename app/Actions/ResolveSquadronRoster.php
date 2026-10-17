@@ -294,10 +294,10 @@ class ResolveSquadronRoster
 
         if (isset($entries['uid'])) {
             $uid = $entries['uid'];
-            $date = $entries['date'] ?? null;
+            $joinedAt = $entries['joined_at'] ?? null;
 
-            if (is_numeric($uid) && (int) $uid > 0 && is_numeric($date)) {
-                return [(int) $uid => (int) $date];
+            if (is_numeric($uid) && (int) $uid > 0 && is_numeric($joinedAt)) {
+                return [(int) $uid => (int) $joinedAt];
             }
 
             return [];
@@ -311,10 +311,10 @@ class ResolveSquadronRoster
             }
 
             $uid = $entry['uid'] ?? null;
-            $date = $entry['date'] ?? null;
+            $joinedAt = $entry['joined_at'] ?? null;
 
-            if (is_numeric($uid) && (int) $uid > 0 && is_numeric($date)) {
-                $joinDates[(int) $uid] = (int) $date;
+            if (is_numeric($uid) && (int) $uid > 0 && is_numeric($joinedAt)) {
+                $joinDates[(int) $uid] = (int) $joinedAt;
             }
         }
 
@@ -342,8 +342,8 @@ class ResolveSquadronRoster
             }
 
             $uid = $entry['uid'] ?? null;
-            $initiator = $entry['initiator'] ?? null;
-            $nickname = $entry['initiator_nick'] ?? null;
+            $initiator = $entry['accepted_by'] ?? null;
+            $nickname = $entry['accepted_by_nick'] ?? null;
 
             if (! is_numeric($uid) || (int) $uid <= 0 || ! is_numeric($initiator) || (int) $initiator <= 0) {
                 continue;
@@ -379,13 +379,19 @@ class ResolveSquadronRoster
             }
 
             $uid = $entry['uid'] ?? null;
-            $role = $entry['role'] ?? null;
+            $rank = $entry['rank'] ?? null;
 
-            if (! is_numeric($uid) || (int) $uid <= 0 || ! is_numeric($role)) {
+            if (! is_numeric($uid) || (int) $uid <= 0) {
                 continue;
             }
 
-            $name = self::ROLE_NAMES[(int) $role] ?? null;
+            $roleValue = is_array($rank) ? ($rank['value'] ?? null) : $rank;
+
+            if (! is_numeric($roleValue)) {
+                continue;
+            }
+
+            $name = self::ROLE_NAMES[(int) $roleValue] ?? null;
 
             if ($name !== null) {
                 $roles[(int) $uid] = $name;

@@ -145,7 +145,7 @@ test('members list can be sorted by status', function () {
 
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
-            'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
             'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
         ], 200),
     ]);
@@ -169,8 +169,8 @@ test('members list can be sorted by join date', function () {
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => (string) $late->gaijin_id, 'nick' => 'LateBird', 'role' => 3, 'date' => Carbon::parse('2024-01-01 00:00:00', 'UTC')->timestamp],
-                ['uid' => (string) $early->gaijin_id, 'nick' => 'EarlyBird', 'role' => 3, 'date' => Carbon::parse('2020-01-01 00:00:00', 'UTC')->timestamp],
+                ['uid' => (string) $late->gaijin_id, 'nick' => 'LateBird', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => Carbon::parse('2024-01-01 00:00:00', 'UTC')->timestamp],
+                ['uid' => (string) $early->gaijin_id, 'nick' => 'EarlyBird', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => Carbon::parse('2020-01-01 00:00:00', 'UTC')->timestamp],
             ],
         ], 200),
     ]);
@@ -198,8 +198,8 @@ test('member modal shows the join date', function () {
             'members' => [[
                 'uid' => (string) $member->gaijin_id,
                 'nick' => 'M',
-                'role' => 3,
-                'date' => Carbon::parse('2023-05-04 12:00:00', 'UTC')->timestamp,
+                'rank' => ['name' => 'PRIVATE', 'value' => 3],
+                'joined_at' => Carbon::parse('2023-05-04 12:00:00', 'UTC')->timestamp,
             ]],
         ], 200),
     ]);
@@ -224,8 +224,8 @@ test('members list shows the join date for each member', function () {
             'members' => [[
                 'uid' => (string) $member->gaijin_id,
                 'nick' => 'M',
-                'role' => 3,
-                'date' => Carbon::parse('2023-05-04 12:00:00', 'UTC')->timestamp,
+                'rank' => ['name' => 'PRIVATE', 'value' => 3],
+                'joined_at' => Carbon::parse('2023-05-04 12:00:00', 'UTC')->timestamp,
             ]],
         ], 200),
     ]);
@@ -249,10 +249,10 @@ test('member modal shows the initiator', function () {
             'members' => [[
                 'uid' => (string) $member->gaijin_id,
                 'nick' => 'M',
-                'role' => 3,
-                'date' => 1683201600,
-                'initiator' => '802302',
-                'initiator_nick' => 'RecruiterBird',
+                'rank' => ['name' => 'PRIVATE', 'value' => 3],
+                'joined_at' => 1683201600,
+                'accepted_by' => 802302,
+                'accepted_by_nick' => 'RecruiterBird',
             ]],
         ], 200),
     ]);
@@ -340,7 +340,7 @@ test('members list derives member, applicant and ex_member status from the clan 
 
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
-            'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
             'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
         ], 200),
     ]);
@@ -373,7 +373,7 @@ test('members list re-authenticates the server token when the clan endpoint reje
         'https://thunder.example/v1/clans/1061551' => Http::sequence()
             ->push([], 401)
             ->push([
-                'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+                'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
                 'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
             ], 200),
     ]);
@@ -736,7 +736,7 @@ test('change role dropdown defaults to the member current role', function () {
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => '801170', 'nick' => 'OfficerBird', 'role' => 2, 'date' => 1],
+                ['uid' => '801170', 'nick' => 'OfficerBird', 'rank' => ['name' => 'OFFICER', 'value' => 2], 'joined_at' => 1],
             ],
         ], 200),
     ]);
@@ -769,7 +769,7 @@ test('change role dropdown uses a fresh role instead of the stale roster cache',
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => (string) $member->gaijin_id, 'nick' => 'SargeBird', 'role' => 6, 'date' => 1],
+                ['uid' => (string) $member->gaijin_id, 'nick' => 'SargeBird', 'rank' => ['name' => 'SERGEANT', 'value' => 6], 'joined_at' => 1],
             ],
         ], 200),
     ]);
@@ -794,7 +794,7 @@ test('role change uses the commander own token when the server account is config
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => '801180', 'nick' => 'PrivateBird', 'role' => 3, 'date' => 1],
+                ['uid' => '801180', 'nick' => 'PrivateBird', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1],
             ],
         ], 200),
         'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
@@ -840,7 +840,7 @@ test('deputy can change a member role with the save button above the kick button
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Deputy'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => '801150', 'nick' => 'PrivateBird', 'role' => 3, 'date' => 1],
+                ['uid' => '801150', 'nick' => 'PrivateBird', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1],
             ],
         ], 200),
         'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
@@ -871,7 +871,7 @@ test('deputy cannot change the commander role and the option is hidden', functio
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Deputy'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => '801151', 'nick' => 'BossBird', 'role' => 1, 'date' => 1],
+                ['uid' => '801151', 'nick' => 'BossBird', 'rank' => ['name' => 'COMMANDER', 'value' => 1], 'joined_at' => 1],
             ],
         ], 200),
         'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
@@ -900,7 +900,7 @@ test('deputy cannot change their own role', function () {
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Deputy'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => '424242', 'nick' => 'TestDeputy', 'role' => 5, 'date' => 1],
+                ['uid' => '424242', 'nick' => 'TestDeputy', 'rank' => ['name' => 'DEPUTY', 'value' => 5], 'joined_at' => 1],
             ],
         ], 200),
         'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),
@@ -929,7 +929,7 @@ test('commander cannot change their own role', function () {
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [
-                ['uid' => '424242', 'nick' => 'TestAdmin', 'role' => 1, 'date' => 1],
+                ['uid' => '424242', 'nick' => 'TestAdmin', 'rank' => ['name' => 'COMMANDER', 'value' => 1], 'joined_at' => 1],
             ],
         ], 200),
         'https://thunder.example/v1/clans/role/*' => Http::response(['status' => 'OK'], 200),

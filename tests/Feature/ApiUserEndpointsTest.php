@@ -46,7 +46,7 @@ test('api users index returns filtered records', function () {
 
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
-            'members' => [['uid' => (string) $matchingUser->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1790000000]],
+            'members' => [['uid' => (string) $matchingUser->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1790000000]],
             'candidates' => [],
         ], 200),
         'https://thunder.example/v1/users/terse*' => Http::response([
@@ -84,7 +84,7 @@ test('api users show returns a single record with derived status', function () {
 
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
-            'members' => [['uid' => (string) $peckUser->gaijin_id, 'nick' => 'M', 'role' => 3, 'date' => 1]],
+            'members' => [['uid' => (string) $peckUser->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
             'candidates' => [],
         ], 200),
     ]);
