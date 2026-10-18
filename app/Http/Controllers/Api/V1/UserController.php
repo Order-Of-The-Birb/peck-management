@@ -203,6 +203,8 @@ class UserController extends Controller
 
     public function show(PeckUser $peckUser): PeckUserResource
     {
+        $this->attachUsernames(collect([$peckUser]));
+
         return new PeckUserResource($peckUser);
     }
 

@@ -124,12 +124,16 @@ test('api users show returns a single record with derived status', function () {
             'members' => [['uid' => (string) $peckUser->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
             'candidates' => [],
         ], 200),
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            (string) $peckUser->gaijin_id => ['nick' => 'Maho_Yoshino'],
+        ], 200),
     ]);
 
     $this->getJson('/api/v1/users/'.$peckUser->gaijin_id)
         ->assertOk()
         ->assertJsonPath('data.gaijin_id', $peckUser->gaijin_id)
-        ->assertJsonPath('data.status', 'member');
+        ->assertJsonPath('data.status', 'member')
+        ->assertJsonPath('data.username', 'Maho_Yoshino');
 });
 
 test('api users leave info endpoints no longer exist', function () {

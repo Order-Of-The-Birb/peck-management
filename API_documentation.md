@@ -59,7 +59,7 @@ Field notes:
 - `tz` (integer, nullable, range `-11` to `12`).  
 - `status` (string): one of `member`, `applicant`, `ex_member` (or `null` when the squadron roster cannot be resolved).  
 - `sqb_part` (boolean, nullable).  
-- `username` (string, nullable): ThunderAPI nickname, returned only by `GET /api/v1/users`.  
+- `username` (string, nullable): ThunderAPI nickname, resolved via the server-wide ThunderAPI account on `GET /api/v1/users` and `GET /api/v1/users/{gaijin_id}`.  
 - `joined_at` (integer, nullable): Unix timestamp of when the member joined the squadron.  
 
 ## User Context Types  
@@ -141,10 +141,14 @@ Response `200`:
 		"discord_id": null,  
 		"tz": null,  
 		"status": "applicant",  
-		"sqb_part": null  
+		"sqb_part": null,  
+		"username": "Maho_Yoshino"  
 	}  
 }  
 ```  
+
+Notes:  
+- Includes `username`, resolved via the server-wide ThunderAPI account.  
 
 Possible errors:  
 - `404` if user is not found.  
