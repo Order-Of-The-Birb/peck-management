@@ -411,6 +411,22 @@ Possible errors:
 - `503` ThunderAPI could not be reached  
 - `502` ThunderAPI token could not be resolved  
 
+### 12) Get Clan ID  
+`GET /api/v1/clan-id`  
+
+This endpoint is public. It returns the squadron (clan) ID that PECK Management is configured to operate against (`SQUADRON_ID`).  
+
+Response `200`:  
+
+```json  
+{  
+	"clan_id": "1061551"  
+}  
+```  
+
+Possible errors:  
+- `503` squadron ID is not configured  
+
 ## Validation Error Shape  
 Validation failures follow Laravel's default JSON validation format (HTTP `422`), for example:  
 

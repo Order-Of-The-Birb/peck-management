@@ -63,6 +63,16 @@ test('api logs returns squadron log entries with the paging cursor', function ()
         ->assertJsonPath('logs.0.affected.nickname', 'NewMember');
 });
 
+test('api clan id returns the configured squadron id', function () {
+    Http::fake();
+
+    $this->getJson('/api/v1/clan-id')
+        ->assertOk()
+        ->assertJsonPath('clan_id', '1061551');
+
+    Http::assertNothingSent();
+});
+
 test('api squadron endpoints return 503 when the squadron id is not configured', function () {
     config()->set('peck.squadron_id', null);
 
@@ -73,6 +83,10 @@ test('api squadron endpoints return 503 when the squadron id is not configured',
         ->assertJsonPath('message', 'Squadron ID is not configured.');
 
     $this->getJson('/api/v1/logs')
+        ->assertStatus(503)
+        ->assertJsonPath('message', 'Squadron ID is not configured.');
+
+    $this->getJson('/api/v1/clan-id')
         ->assertStatus(503)
         ->assertJsonPath('message', 'Squadron ID is not configured.');
 

@@ -15,6 +15,7 @@ Route::prefix('v1')->group(function (): void {
 
     Route::get('applicants', [SquadronController::class, 'applicants']);
     Route::get('logs', [SquadronController::class, 'logs']);
+    Route::get('clan-id', [SquadronController::class, 'clanId']);
 
     Route::middleware('api.key')->group(function (): void {
         Route::get('server-token', ServerTokenController::class);

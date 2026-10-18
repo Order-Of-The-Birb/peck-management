@@ -20,6 +20,22 @@ class SquadronController extends Controller
     ) {}
 
     /**
+     * Return the clan ID that PECK Management operates against.
+     */
+    public function clanId(): JsonResponse
+    {
+        $clanId = $this->squadronId();
+
+        if ($clanId === null) {
+            return $this->errorResponse(503, 'Squadron ID is not configured.');
+        }
+
+        return response()->json([
+            'clan_id' => $clanId,
+        ]);
+    }
+
+    /**
      * List the squadron's current membership applications.
      */
     public function applicants(Request $request): JsonResponse
