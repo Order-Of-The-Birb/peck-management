@@ -299,9 +299,9 @@
                                             @endif
                                         </div>
 
-                                        @if ($applicant['country'] !== null || $applicant['timezone'] !== null)
+                                        @if ($applicant['country'] !== null || $applicant['city'] !== null || $applicant['timezone'] !== null)
                                             <div class="mt-auto pt-4 text-sm text-neutral-500 dark:text-neutral-400">
-                                                {{ collect([$applicant['country'], $applicant['timezone']])->filter()->implode(' · ') }}
+                                                {{ collect([$applicant['country'], $applicant['city'], $applicant['timezone']])->filter()->implode(' · ') }}
                                             </div>
                                         @endif
                                     </button>
@@ -321,6 +321,11 @@
                                     <div>
                                         <flux:text class="text-sm font-medium text-neutral-500 dark:text-neutral-400">{{ __('Country') }}</flux:text>
                                         <flux:text class="mt-1">{{ $applicant['country'] ?? '—' }}</flux:text>
+                                    </div>
+
+                                    <div>
+                                        <flux:text class="text-sm font-medium text-neutral-500 dark:text-neutral-400">{{ __('City') }}</flux:text>
+                                        <flux:text class="mt-1">{{ $applicant['city'] ?? '—' }}</flux:text>
                                     </div>
 
                                     <div>

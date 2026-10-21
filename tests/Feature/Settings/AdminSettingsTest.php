@@ -420,8 +420,8 @@ test('admin can force a refresh with a global ten minute cooldown', function () 
     Cache::forget((string) config('peck.force_refresh.lock_key'));
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
-            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        'https://thunder.example/v1/clans/search*' => Http::response([
+            ['id' => '123', 'name' => 'Order Of The Birb'],
         ], 200),
         'https://thunder.example/v1/clans/123' => Http::response([
             'members' => [],
@@ -468,7 +468,7 @@ test('force refresh surfaces an error when thunderapi rejects the token', functi
     Cache::forget((string) config('peck.force_refresh.result_key'));
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
+        'https://thunder.example/v1/clans/search*' => Http::response([
             'detail' => 'User not found',
         ], 401),
     ]);
@@ -518,8 +518,8 @@ test('force refresh re-authenticates when the server token is invalid', function
             'token' => 'replacement-token',
             'user_id' => 424242,
         ], 200),
-        'https://thunder.example/v1/clans/search/*' => Http::response([
-            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        'https://thunder.example/v1/clans/search*' => Http::response([
+            ['id' => '123', 'name' => 'Order Of The Birb'],
         ], 200),
         'https://thunder.example/v1/clans/123' => Http::response([
             'members' => [],

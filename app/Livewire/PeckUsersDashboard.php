@@ -137,7 +137,7 @@ class PeckUsersDashboard extends Component
     public bool $squadronLogsHasMore = false;
 
     /**
-     * @var list<array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}>
+     * @var list<array{uid:string,nickname:string,timestamp:?string,country:?string,city:?string,timezone:?string,comment:string}>
      */
     public array $squadronApplicants = [];
 
@@ -1469,14 +1469,15 @@ class PeckUsersDashboard extends Component
 
     /**
      * @param  array<string, mixed>  $applicant
-     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}
+     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,city:?string,timezone:?string,comment:string}
      */
     protected function normalizeSquadronApplicant(array $applicant): array
     {
         $uid = $applicant['uid'] ?? null;
-        $geodata = $applicant['geodata'] ?? null;
-        $country = is_array($geodata) ? ($geodata['country'] ?? null) : null;
-        $timezone = is_array($geodata) ? ($geodata['timezone'] ?? null) : null;
+        $geo = $applicant['geo'] ?? null;
+        $country = is_array($geo) ? ($geo['country'] ?? null) : null;
+        $city = is_array($geo) ? ($geo['city'] ?? null) : null;
+        $offset = is_array($geo) ? ($geo['offset'] ?? null) : null;
         $timestamp = $applicant['timestamp'] ?? null;
 
         return [
@@ -1484,18 +1485,19 @@ class PeckUsersDashboard extends Component
             'nickname' => (string) ($applicant['nickname'] ?? ''),
             'timestamp' => is_numeric($timestamp) ? Carbon::createFromTimestamp((int) $timestamp)->format('Y-m-d H:i') : null,
             'country' => is_string($country) && $country !== '' ? $country : null,
-            'timezone' => is_int($timezone) ? $this->formatSquadronTimezone($timezone) : null,
+            'city' => is_string($city) && $city !== '' ? $city : null,
+            'timezone' => is_numeric($offset) ? $this->formatSquadronTimezone($offset) : null,
             'comment' => (string) ($applicant['comment'] ?? ''),
         ];
     }
 
-    protected function formatSquadronTimezone(int $timezone): string
+    protected function formatSquadronTimezone(int|float $offset): string
     {
-        return 'UTC'.($timezone >= 0 ? '+' : '').$timezone;
+        return 'UTC'.($offset >= 0 ? '+' : '').$offset;
     }
 
     /**
-     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,timezone:?string,comment:string}|null
+     * @return array{uid:string,nickname:string,timestamp:?string,country:?string,city:?string,timezone:?string,comment:string}|null
      */
     public function selectedApplicant(): ?array
     {

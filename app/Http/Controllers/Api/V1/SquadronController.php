@@ -133,9 +133,10 @@ class SquadronController extends Controller
     {
         $uid = $applicant['uid'] ?? null;
         $timestamp = $applicant['timestamp'] ?? null;
-        $geodata = $applicant['geodata'] ?? null;
-        $country = is_array($geodata) ? ($geodata['country'] ?? null) : null;
-        $timezone = is_array($geodata) ? ($geodata['timezone'] ?? null) : null;
+        $geo = $applicant['geo'] ?? null;
+        $country = is_array($geo) ? ($geo['country'] ?? null) : null;
+        $city = is_array($geo) ? ($geo['city'] ?? null) : null;
+        $offset = is_array($geo) ? ($geo['offset'] ?? null) : null;
 
         return [
             'uid' => is_numeric($uid) ? (string) $uid : '',
@@ -143,7 +144,8 @@ class SquadronController extends Controller
             'timestamp' => is_numeric($timestamp) ? (int) $timestamp : null,
             'comment' => (string) ($applicant['comment'] ?? ''),
             'country' => is_string($country) && $country !== '' ? $country : null,
-            'timezone' => is_int($timezone) ? $timezone : null,
+            'city' => is_string($city) && $city !== '' ? $city : null,
+            'timezone' => is_numeric($offset) ? $offset : null,
         ];
     }
 

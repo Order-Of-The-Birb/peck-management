@@ -64,7 +64,7 @@ class RefreshPeckDB
 
         $clan = $this->findClan($token, $squadronName);
 
-        $clanId = (int) ($clan['_id'] ?? 0);
+        $clanId = (int) ($clan['id'] ?? $clan['_id'] ?? 0);
 
         if ($clanId <= 0) {
             throw new RuntimeException('Squadron search response is missing a valid clan id.');
@@ -118,7 +118,7 @@ class RefreshPeckDB
             ->withToken($token)
             ->timeout(20)
             ->retry(3, 500, throw: false)
-            ->get($this->baseUrl().'/v1/clans/search/', [
+            ->get($this->baseUrl().'/v1/clans/search', [
                 'clanName' => $squadronName,
             ]);
 
@@ -139,10 +139,10 @@ class RefreshPeckDB
                 continue;
             }
 
-            $clanNameLower = (string) ($clan['namel'] ?? '');
+            $clanNameLower = strtolower(trim((string) ($clan['name'] ?? '')));
 
-            if ($clanNameLower === '' && isset($clan['name'])) {
-                $clanNameLower = strtolower(trim((string) $clan['name']));
+            if ($clanNameLower === '') {
+                $clanNameLower = (string) ($clan['namel'] ?? '');
             }
 
             if ($clanNameLower === $normalizedName) {

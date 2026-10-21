@@ -21,11 +21,10 @@ test('automatic peck database refresh runs once when schedule is due', function 
     Cache::forget((string) config('peck.auto_refresh.lock_key'));
 
     Http::fake([
-        'https://example.test/v1/clans/search/*' => Http::response([
+        'https://example.test/v1/clans/search*' => Http::response([
             [
-                '_id' => '123',
+                'id' => '123',
                 'name' => 'Order Of The Birb',
-                'namel' => 'order of the birb',
             ],
         ], 200),
         'https://example.test/v1/clans/123' => Http::response([

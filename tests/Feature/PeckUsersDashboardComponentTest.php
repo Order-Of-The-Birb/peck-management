@@ -146,7 +146,7 @@ test('members list can be sorted by status', function () {
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
-            'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
+            'applicants' => [['uid' => (string) $applicant->gaijin_id, 'nickname' => 'A', 'timestamp' => 1, 'comment' => '']],
         ], 200),
     ]);
 
@@ -288,8 +288,8 @@ test('requesting a partial refresh runs once and enforces a global cooldown', fu
     $this->actingAs(User::factory()->create(['level' => 1]));
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
-            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        'https://thunder.example/v1/clans/search*' => Http::response([
+            ['id' => '123', 'name' => 'Order Of The Birb'],
         ], 200),
         'https://thunder.example/v1/clans/123' => Http::response([
             'members' => [['uid' => '900001']],
@@ -304,8 +304,8 @@ test('requesting a partial refresh runs once and enforces a global cooldown', fu
     expect($component->instance()->partialRefreshCooldownSeconds())->toBeGreaterThan(0);
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
-            ['_id' => '123', 'name' => 'Order Of The Birb', 'namel' => 'order of the birb'],
+        'https://thunder.example/v1/clans/search*' => Http::response([
+            ['id' => '123', 'name' => 'Order Of The Birb'],
         ], 200),
         'https://thunder.example/v1/clans/123' => Http::response([
             'members' => [['uid' => '900002']],
@@ -341,7 +341,7 @@ test('members list derives member, applicant and ex_member status from the clan 
     Http::fake([
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
-            'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
+            'applicants' => [['uid' => (string) $applicant->gaijin_id, 'nickname' => 'A', 'timestamp' => 1, 'comment' => '']],
         ], 200),
     ]);
 
@@ -374,7 +374,7 @@ test('members list re-authenticates the server token when the clan endpoint reje
             ->push([], 401)
             ->push([
                 'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
-                'candidates' => [['uid' => (string) $applicant->gaijin_id, 'nick' => 'A', 'date' => 1, 'comments' => '']],
+                'applicants' => [['uid' => (string) $applicant->gaijin_id, 'nickname' => 'A', 'timestamp' => 1, 'comment' => '']],
             ], 200),
     ]);
 
@@ -958,7 +958,7 @@ test('manage tab is hidden for members who left the squadron', function () {
         'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
         'https://thunder.example/v1/clans/1061551' => Http::response([
             'members' => [],
-            'candidates' => [],
+            'applicants' => [],
         ], 200),
     ]);
 

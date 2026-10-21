@@ -865,7 +865,7 @@ new #[Title('Administration settings')] class extends Component
                 continue;
             }
 
-            $id = trim((string) ($clan['_id'] ?? ''));
+            $id = trim((string) ($clan['id'] ?? $clan['_id'] ?? ''));
 
             if ($id === '') {
                 continue;

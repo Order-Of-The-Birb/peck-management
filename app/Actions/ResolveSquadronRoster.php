@@ -82,7 +82,7 @@ class ResolveSquadronRoster
         $roster = [
             'resolved' => true,
             'member_ids' => $this->extractIds($clan['members'] ?? null),
-            'applicant_ids' => $this->extractIds($clan['candidates'] ?? null),
+            'applicant_ids' => $this->extractIds($clan['applicants'] ?? null),
             'member_join_dates' => $this->extractJoinDates($clan['members'] ?? null),
             'member_initiators' => $this->extractInitiators($clan['members'] ?? null),
             'member_roles' => $this->extractMemberRoles($clan['members'] ?? null),

@@ -350,14 +350,14 @@ test('squadron applications render as cards with applicant details', function ()
                 'nickname' => 'ApplicantOne',
                 'timestamp' => $timestamp,
                 'comment' => 'Looking to join the squadron.',
-                'geodata' => ['country' => 'Germany', 'timezone' => 2],
+                'geo' => ['country' => 'Germany', 'offset' => 2, 'city' => 'Berlin'],
             ],
             [
                 'uid' => '87654321',
                 'nickname' => 'ApplicantTwo',
                 'timestamp' => $timestamp,
                 'comment' => '',
-                'geodata' => ['country' => 'United States', 'timezone' => -5],
+                'geo' => ['country' => 'United States', 'offset' => -5, 'city' => 'New York'],
             ],
         ], 200),
     ]);
@@ -372,8 +372,10 @@ test('squadron applications render as cards with applicant details', function ()
         ->assertSee('ApplicantTwo')
         ->assertDontSeeText('#87654321')
         ->assertSee('Germany')
+        ->assertSee('Berlin')
         ->assertSee('UTC+2')
         ->assertSee('United States')
+        ->assertSee('New York')
         ->assertSee('UTC-5')
         ->assertSee($expectedDatetime);
 });
@@ -432,7 +434,7 @@ test('opening an application modal shows the applicants details and comment', fu
                 'nickname' => 'ApplicantOne',
                 'timestamp' => 1790000000,
                 'comment' => 'Looking to join the squadron.',
-                'geodata' => ['country' => 'Germany', 'timezone' => 2],
+                'geo' => ['country' => 'Germany', 'offset' => 2, 'city' => 'Berlin'],
             ],
         ], 200),
     ]);
@@ -445,6 +447,7 @@ test('opening an application modal shows the applicants details and comment', fu
         ->assertSee('ApplicantOne')
         ->assertDontSeeText('#12345678')
         ->assertSee('Germany')
+        ->assertSee('Berlin')
         ->assertSee('UTC+2')
         ->assertSee('Looking to join the squadron.')
         ->assertSee('Comment');
@@ -466,7 +469,7 @@ test('accepting an application posts to the accept endpoint and refreshes the li
                     'nickname' => 'ApplicantOne',
                     'timestamp' => 1790000000,
                     'comment' => '',
-                    'geodata' => ['country' => 'Germany', 'timezone' => 2],
+                    'geo' => ['country' => 'Germany', 'offset' => 2, 'city' => 'Berlin'],
                 ],
             ], 200)
             ->push([], 200),
@@ -505,7 +508,7 @@ test('rejecting an application posts a reason to the reject endpoint', function 
                     'nickname' => 'ApplicantOne',
                     'timestamp' => 1790000000,
                     'comment' => '',
-                    'geodata' => ['country' => 'Germany', 'timezone' => 2],
+                    'geo' => ['country' => 'Germany', 'offset' => 2, 'city' => 'Berlin'],
                 ],
             ], 200)
             ->push([], 200),

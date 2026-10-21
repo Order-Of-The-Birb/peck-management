@@ -122,7 +122,7 @@ class ThunderApi
             $response = Http::acceptJson()
                 ->withToken($token)
                 ->timeout(30)
-                ->get($this->baseUrl().'/v1/clans/search/', [
+                ->get($this->baseUrl().'/v1/clans/search', [
                     'clanName' => $query,
                     'clanTag' => $query,
                 ]);

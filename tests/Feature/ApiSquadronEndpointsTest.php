@@ -21,7 +21,7 @@ test('api applicants returns normalized squadron applicants using the server tok
                 'nickname' => 'Maho_Yoshino',
                 'timestamp' => 1790000000,
                 'comment' => 'Hello',
-                'geodata' => ['country' => 'DE', 'timezone' => 2],
+                'geo' => ['country' => 'DE', 'offset' => 2, 'city' => 'Berlin'],
             ],
         ], 200),
     ]);
@@ -34,6 +34,7 @@ test('api applicants returns normalized squadron applicants using the server tok
         ->assertJsonPath('data.0.timestamp', 1790000000)
         ->assertJsonPath('data.0.comment', 'Hello')
         ->assertJsonPath('data.0.country', 'DE')
+        ->assertJsonPath('data.0.city', 'Berlin')
         ->assertJsonPath('data.0.timezone', 2);
 
     Http::assertSent(fn ($request) => $request->url() === 'https://thunder.example/v1/clans/applicants/1061551'

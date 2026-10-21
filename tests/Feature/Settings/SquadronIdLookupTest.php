@@ -65,9 +65,9 @@ test('squadron id lookup searches squadrons by name and tag', function () {
     ]);
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
-            ['_id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
-            ['_id' => '456', 'tag' => 'OTHER', 'name' => 'Another Squadron'],
+        'https://thunder.example/v1/clans/search*' => Http::response([
+            ['id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
+            ['id' => '456', 'tag' => 'OTHER', 'name' => 'Another Squadron'],
         ], 200),
     ]);
 
@@ -77,7 +77,7 @@ test('squadron id lookup searches squadrons by name and tag', function () {
         ->assertSeeText('456 OTHER Another Squadron');
 
     Http::assertSent(function ($request): bool {
-        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search/')
+        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search')
             && $request->data()['clanName'] === 'Order Of The Birb'
             && $request->data()['clanTag'] === 'Order Of The Birb';
     });
@@ -98,7 +98,7 @@ test('squadron id lookup shows an informative message when no squadrons match', 
     ]);
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([], 200),
+        'https://thunder.example/v1/clans/search*' => Http::response([], 200),
     ]);
 
     Livewire::test('pages::settings.admin')
@@ -144,7 +144,7 @@ test('squadron id lookup invalidates the token when thunderapi returns 401', fun
     ]);
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
+        'https://thunder.example/v1/clans/search*' => Http::response([
             'detail' => 'User not found',
         ], 401),
     ]);
@@ -211,8 +211,8 @@ test('squadron id lookup falls back to the server-wide login when the admin has 
     $this->actingAs(createAdminForSquadronLookup());
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
-            ['_id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
+        'https://thunder.example/v1/clans/search*' => Http::response([
+            ['id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
         ], 200),
     ]);
 
@@ -222,7 +222,7 @@ test('squadron id lookup falls back to the server-wide login when the admin has 
         ->assertSeeText('123 PECK Order Of The Birb');
 
     Http::assertSent(function ($request): bool {
-        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search/')
+        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search')
             && $request->hasHeader('Authorization', 'Bearer server-token');
     });
 });
@@ -246,8 +246,8 @@ test('squadron id lookup prefers the admin personal token over the server-wide l
     ]);
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => Http::response([
-            ['_id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
+        'https://thunder.example/v1/clans/search*' => Http::response([
+            ['id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
         ], 200),
     ]);
 
@@ -255,7 +255,7 @@ test('squadron id lookup prefers the admin personal token over the server-wide l
         ->assertSeeText('123 PECK Order Of The Birb');
 
     Http::assertSent(function ($request): bool {
-        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search/')
+        return str_starts_with($request->url(), 'https://thunder.example/v1/clans/search')
             && $request->hasHeader('Authorization', 'Bearer user-token');
     });
 });
@@ -279,13 +279,13 @@ test('squadron id lookup falls back to the server-wide login when the personal t
     ]);
 
     Http::fake([
-        'https://thunder.example/v1/clans/search/*' => function ($request) {
+        'https://thunder.example/v1/clans/search*' => function ($request) {
             if ($request->hasHeader('Authorization', 'Bearer stale-user-token')) {
                 return Http::response(['detail' => 'User not found'], 401);
             }
 
             return Http::response([
-                ['_id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
+                ['id' => '123', 'tag' => 'PECK', 'name' => 'Order Of The Birb'],
             ], 200);
         },
     ]);

@@ -11,11 +11,10 @@ test('peck refresh command imports users from ThunderAPI', function () {
     ThunderApiServerToken::factory()->create(['token' => 'test-token']);
 
     Http::fake([
-        'https://example.test/v1/clans/search/*' => Http::response([
+        'https://example.test/v1/clans/search*' => Http::response([
             [
-                '_id' => '123',
+                'id' => '123',
                 'name' => 'Order Of The Birb',
-                'namel' => 'order of the birb',
             ],
         ], 200),
         'https://example.test/v1/clans/123' => Http::response([
@@ -48,11 +47,10 @@ test('peck refresh command dry run does not write users', function () {
     ThunderApiServerToken::factory()->create(['token' => 'test-token']);
 
     Http::fake([
-        'https://example.test/v1/clans/search/*' => Http::response([
+        'https://example.test/v1/clans/search*' => Http::response([
             [
-                '_id' => '123',
+                'id' => '123',
                 'name' => 'Order Of The Birb',
-                'namel' => 'order of the birb',
             ],
         ], 200),
         'https://example.test/v1/clans/123' => Http::response([
