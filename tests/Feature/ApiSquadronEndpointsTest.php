@@ -1,19 +1,14 @@
 <?php
 
-use App\Models\ThunderApiServerToken;
 use Illuminate\Support\Facades\Http;
 
 beforeEach(function () {
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
     config()->set('peck.thunderapi_refresh.refresh_after_hours', 1);
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 });
 
-test('api applicants returns normalized squadron applicants using the server token', function () {
+test('api applicants returns normalized squadron applicants without a token', function () {
     Http::fake([
         'https://thunder.example/v1/clans/applicants/1061551' => Http::response([
             [
@@ -38,7 +33,7 @@ test('api applicants returns normalized squadron applicants using the server tok
         ->assertJsonPath('data.0.timezone', 2);
 
     Http::assertSent(fn ($request) => $request->url() === 'https://thunder.example/v1/clans/applicants/1061551'
-        && $request->hasHeader('Authorization', 'Bearer server-token'));
+        && ! $request->hasHeader('Authorization'));
 });
 
 test('api logs returns squadron log entries with the paging cursor', function () {
@@ -92,45 +87,6 @@ test('api squadron endpoints return 503 when the squadron id is not configured',
         ->assertJsonPath('message', 'Squadron ID is not configured.');
 
     Http::assertNothingSent();
-});
-
-test('api squadron endpoints return 503 when the server account is not configured', function () {
-    config()->set('peck.thunderapi_server.email', null);
-    config()->set('peck.thunderapi_server.password', null);
-
-    Http::fake();
-
-    $this->getJson('/api/v1/applicants')
-        ->assertStatus(503)
-        ->assertJsonPath('message', 'ThunderAPI server account is not configured.');
-
-    $this->getJson('/api/v1/logs')
-        ->assertStatus(503)
-        ->assertJsonPath('message', 'ThunderAPI server account is not configured.');
-
-    Http::assertNothingSent();
-});
-
-test('api applicants re-authenticates the server token when it is rejected', function () {
-    Http::fake([
-        'https://thunder.example/v1/clans/applicants/1061551' => Http::sequence()
-            ->push(['detail' => 'User not found'], 401)
-            ->push([
-                ['uid' => '820003', 'nickname' => 'Maho_Yoshino'],
-            ], 200),
-        'https://thunder.example/v1/login' => Http::response([
-            'status' => 'OK',
-            'token' => 'fresh-server-token',
-            'user_id' => 424242,
-        ], 200),
-    ]);
-
-    $this->getJson('/api/v1/applicants')
-        ->assertOk()
-        ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.uid', '820003');
-
-    expect(ThunderApiServerToken::query()->value('token'))->toBe('fresh-server-token');
 });
 
 test('api logs validates the limit query parameter', function () {

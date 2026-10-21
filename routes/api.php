@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\InvalidateCacheController;
-use App\Http\Controllers\Api\V1\ServerTokenController;
 use App\Http\Controllers\Api\V1\SquadronController;
 use App\Http\Controllers\Api\V1\UserController;
 use Illuminate\Support\Facades\Route;
@@ -18,7 +17,6 @@ Route::prefix('v1')->group(function (): void {
     Route::get('clan-id', [SquadronController::class, 'clanId']);
 
     Route::middleware('api.key')->group(function (): void {
-        Route::get('server-token', ServerTokenController::class);
         Route::post('users', [UserController::class, 'store']);
         Route::patch('users/{peckUser:gaijin_id}', [UserController::class, 'update']);
         Route::post('users/{peckUser:gaijin_id}/context', [UserController::class, 'storeContext']);

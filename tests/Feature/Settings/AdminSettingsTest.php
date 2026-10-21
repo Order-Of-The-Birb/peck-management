@@ -2,16 +2,12 @@
 
 use App\Models\ApiKey;
 use App\Models\PeckUser;
-use App\Models\ThunderApiServerToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 
-beforeEach(function () {
-    config()->set('peck.thunderapi_server.email', null);
-    config()->set('peck.thunderapi_server.password', null);
-});
+beforeEach(function () {});
 
 test('admin settings page is displayed for admins', function () {
     $user = User::query()->create([
@@ -253,10 +249,6 @@ test('delete user section filters war thunder users by username and shows empty 
     Cache::flush();
 
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $admin = User::query()->create([
         'name' => 'Admin Delete User Search',
@@ -415,8 +407,6 @@ test('admin can force a refresh with a global ten minute cooldown', function () 
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
 
-    ThunderApiServerToken::factory()->create(['token' => 'test-token']);
-
     Cache::forget((string) config('peck.force_refresh.lock_key'));
 
     Http::fake([
@@ -462,8 +452,6 @@ test('force refresh surfaces an error when thunderapi rejects the token', functi
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
 
-    ThunderApiServerToken::factory()->create(['token' => 'test-token']);
-
     Cache::forget((string) config('peck.force_refresh.lock_key'));
     Cache::forget((string) config('peck.force_refresh.result_key'));
 
@@ -497,27 +485,11 @@ test('force refresh re-authenticates when the server token is invalid', function
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
     config()->set('peck.thunderapi_refresh.refresh_after_hours', 1);
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create([
-        'token' => 'stale-token',
-        'refreshed_at' => now()->subHours(2),
-    ]);
 
     Cache::forget((string) config('peck.force_refresh.lock_key'));
     Cache::forget((string) config('peck.force_refresh.result_key'));
 
     Http::fake([
-        'https://thunder.example/v1/refresh-token' => Http::response([
-            'status' => 'FAIL',
-            'detail' => 'Invalid token',
-        ], 404),
-        'https://thunder.example/v1/login' => Http::response([
-            'status' => 'OK',
-            'token' => 'replacement-token',
-            'user_id' => 424242,
-        ], 200),
         'https://thunder.example/v1/clans/search*' => Http::response([
             ['id' => '123', 'name' => 'Order Of The Birb'],
         ], 200),
@@ -529,8 +501,6 @@ test('force refresh re-authenticates when the server token is invalid', function
     Livewire::test('pages::settings.admin')
         ->call('requestForceRefresh')
         ->assertSee('Refresh completed');
-
-    expect(ThunderApiServerToken::query()->value('token'))->toBe('replacement-token');
 });
 
 test('user access levels card marks unverified emails', function () {

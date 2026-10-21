@@ -2,7 +2,6 @@
 
 namespace App\Actions;
 
-use App\Models\ThunderApiToken;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
@@ -10,7 +9,6 @@ class ResolveUsernames
 {
     public function __construct(
         private readonly ThunderApi $thunderApi,
-        private readonly ServerThunderApi $serverThunderApi,
     ) {}
 
     /**
@@ -18,10 +16,7 @@ class ResolveUsernames
      *
      * Usernames are cached locally and any lookup failure silently falls back
      * to an empty result so callers can display the raw Gaijin ID instead.
-     *
-     * When a token is provided it is used directly. Otherwise the server
-     * account (.env ThunderAPI login) is used first, falling back to the
-     * authenticated user's own ThunderAPI token.
+     * The terse endpoint is public, so no client token is required.
      *
      * The optional $unreachable flag is set to true when ThunderAPI could not
      * be reached while resolving the requested usernames.
@@ -29,7 +24,7 @@ class ResolveUsernames
      * @param  list<int>  $gaijinIds
      * @return array<int, string>
      */
-    public function resolve(array $gaijinIds, ?string $token = null, ?bool &$unreachable = null): array
+    public function resolve(array $gaijinIds, ?bool &$unreachable = null): array
     {
         $unreachable = false;
 
@@ -60,21 +55,7 @@ class ResolveUsernames
         }
 
         try {
-            $token ??= $this->resolveToken();
-        } catch (ThunderApiUnreachableException) {
-            $unreachable = true;
-
-            return $resolved;
-        } catch (Throwable) {
-            return $resolved;
-        }
-
-        if ($token === null) {
-            return $resolved;
-        }
-
-        try {
-            $fetched = $this->thunderApi->getUsersTerse($token, $missing);
+            $fetched = $this->thunderApi->getUsersTerse(null, $missing);
         } catch (ThunderApiUnreachableException) {
             $unreachable = true;
 
@@ -89,33 +70,6 @@ class ResolveUsernames
         }
 
         return $resolved;
-    }
-
-    protected function resolveToken(): ?string
-    {
-        $serverUnreachable = false;
-
-        if ($this->serverThunderApi->isConfigured()) {
-            try {
-                return $this->serverThunderApi->token();
-            } catch (ThunderApiUnreachableException) {
-                $serverUnreachable = true;
-            } catch (Throwable) {
-                // Fall back to the authenticated user's token below.
-            }
-        }
-
-        $token = ThunderApiToken::query()->find(auth()->id());
-
-        if ($token instanceof ThunderApiToken && ! $token->isExpired()) {
-            return $token->token;
-        }
-
-        if ($serverUnreachable) {
-            throw new ThunderApiUnreachableException('Unable to reach ThunderAPI. Please try again later.');
-        }
-
-        return null;
     }
 
     protected function cacheKey(int $gaijinId): string

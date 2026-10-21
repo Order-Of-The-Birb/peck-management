@@ -5,7 +5,6 @@ use App\Models\PeckAlt;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
 use App\Models\PeckUserData;
-use App\Models\ThunderApiServerToken;
 use App\Models\ThunderApiToken;
 use App\Models\User;
 use Carbon\Carbon;
@@ -19,8 +18,6 @@ beforeEach(function () {
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
     config()->set('peck.thunderapi_refresh.refresh_after_hours', 1);
     config()->set('peck.squadron_id', null);
-    config()->set('peck.thunderapi_server.email', null);
-    config()->set('peck.thunderapi_server.password', null);
 });
 
 function thunderSelfResponse(string $role): array
@@ -86,10 +83,6 @@ test('members list is searchable by gaijin id and discord id', function () {
 });
 
 test('members list is searchable by username', function () {
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $member = PeckUser::factory()->create(['gaijin_id' => 800011]);
     $other = PeckUser::factory()->create(['gaijin_id' => 800012]);
@@ -108,10 +101,6 @@ test('members list is searchable by username', function () {
 });
 
 test('members list can be sorted by username', function () {
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $first = PeckUser::factory()->create(['gaijin_id' => 800013]);
     $second = PeckUser::factory()->create(['gaijin_id' => 800014]);
@@ -134,10 +123,6 @@ test('members list can be sorted by username', function () {
 
 test('members list can be sorted by status', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $member = PeckUser::factory()->create(['gaijin_id' => 802200]);
     $applicant = PeckUser::factory()->create(['gaijin_id' => 802201]);
@@ -158,10 +143,6 @@ test('members list can be sorted by status', function () {
 
 test('members list can be sorted by join date', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $early = PeckUser::factory()->create(['gaijin_id' => 802210]);
     $late = PeckUser::factory()->create(['gaijin_id' => 802211]);
@@ -186,10 +167,6 @@ test('members list can be sorted by join date', function () {
 
 test('member modal shows the join date', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $member = PeckUser::factory()->create(['gaijin_id' => 802300]);
 
@@ -212,10 +189,6 @@ test('member modal shows the join date', function () {
 
 test('members list shows the join date for each member', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $member = PeckUser::factory()->create(['gaijin_id' => 802305]);
 
@@ -237,10 +210,6 @@ test('members list shows the join date for each member', function () {
 
 test('member modal shows the initiator', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $member = PeckUser::factory()->create(['gaijin_id' => 802301]);
 
@@ -280,10 +249,6 @@ test('requesting a partial refresh runs once and enforces a global cooldown', fu
     $this->withoutDefer();
 
     config()->set('peck.squadron_name', 'Order Of The Birb');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $this->actingAs(User::factory()->create(['level' => 1]));
 
@@ -329,10 +294,6 @@ test('users without write access cannot request a partial refresh', function () 
 
 test('members list derives member, applicant and ex_member status from the clan endpoint', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $member = PeckUser::factory()->create(['gaijin_id' => 802200]);
     $applicant = PeckUser::factory()->create(['gaijin_id' => 802201]);
@@ -351,41 +312,6 @@ test('members list derives member, applicant and ex_member status from the clan 
         ->set('search', (string) $member->gaijin_id)
         ->assertSee('member')
         ->assertDontSee('ex_member');
-});
-
-test('members list re-authenticates the server token when the clan endpoint rejects it', function () {
-    config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'stale-server-token']);
-
-    $member = PeckUser::factory()->create(['gaijin_id' => 802300]);
-    $applicant = PeckUser::factory()->create(['gaijin_id' => 802301]);
-    $exMember = PeckUser::factory()->create(['gaijin_id' => 802302]);
-
-    Http::fake([
-        'https://thunder.example/v1/login' => Http::response([
-            'status' => 'OK',
-            'token' => 'fresh-server-token',
-            'user_id' => 424242,
-        ], 200),
-        'https://thunder.example/v1/clans/1061551' => Http::sequence()
-            ->push([], 401)
-            ->push([
-                'members' => [['uid' => (string) $member->gaijin_id, 'nick' => 'M', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1]],
-                'applicants' => [['uid' => (string) $applicant->gaijin_id, 'nickname' => 'A', 'timestamp' => 1, 'comment' => '']],
-            ], 200),
-    ]);
-
-    Livewire::test(PeckUsersDashboard::class)
-        ->assertSee('applicant')
-        ->assertSee('ex_member')
-        ->set('search', (string) $member->gaijin_id)
-        ->assertSee('member')
-        ->assertDontSee('ex_member');
-
-    expect(ThunderApiServerToken::query()->first()->token)->toBe('fresh-server-token');
 });
 
 test('non-admin users can open the member modal but not edit or manage', function () {
@@ -441,10 +367,6 @@ test('admins can edit member fields and save changes', function () {
 });
 
 test('admins can edit when the server thunderapi account is configured', function () {
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     actingThunderAdmin('Commander');
 
@@ -781,10 +703,6 @@ test('change role dropdown uses a fresh role instead of the stale roster cache',
 });
 
 test('role change uses the commander own token when the server account is configured', function () {
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     actingThunderAdmin('Commander');
 
@@ -983,9 +901,6 @@ test('member username resolves through the user thunderapi token when server log
 
     $this->actingAs($user);
 
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
     $member = PeckUser::factory()->create(['gaijin_id' => 801300]);
 
     Http::fake([
@@ -1001,10 +916,6 @@ test('member username resolves through the user thunderapi token when server log
 });
 
 test('members list resolves usernames via the terse endpoint using the server login', function () {
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $member = PeckUser::factory()->create(['gaijin_id' => 802001]);
 
@@ -1020,10 +931,6 @@ test('members list resolves usernames via the terse endpoint using the server lo
 });
 
 test('shows an error popup when thunderapi is unreachable during username resolution', function () {
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     PeckUser::factory()->create(['gaijin_id' => 802100]);
 

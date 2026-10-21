@@ -5,7 +5,6 @@ namespace App\Livewire;
 use App\Actions\RefreshPeckDB;
 use App\Actions\ResolveSquadronRoster;
 use App\Actions\ResolveUsernames;
-use App\Actions\ServerThunderApi;
 use App\Actions\ThunderApi;
 use App\Actions\ThunderApiException;
 use App\Actions\ThunderApiUnauthorizedException;
@@ -177,10 +176,6 @@ class PeckUsersDashboard extends Component
 
     private bool $thunderSelfResolved = false;
 
-    private ?string $resolvedEffectiveThunderToken = null;
-
-    private bool $effectiveThunderTokenResolved = false;
-
     public function mount(string $section = 'members'): void
     {
         if (in_array($section, ['members', 'squadron_logs', 'squadron_applications'], true)) {
@@ -219,7 +214,7 @@ class PeckUsersDashboard extends Component
             return [];
         }
 
-        return app(ResolveUsernames::class)->resolve($gaijinIds, $this->effectiveThunderToken(), $unreachable);
+        return app(ResolveUsernames::class)->resolve($gaijinIds, $unreachable);
     }
 
     /**
@@ -459,62 +454,6 @@ class PeckUsersDashboard extends Component
         return is_numeric($userId) && (int) $userId > 0 ? (int) $userId : null;
     }
 
-    protected function effectiveThunderToken(): ?string
-    {
-        if ($this->effectiveThunderTokenResolved) {
-            return $this->resolvedEffectiveThunderToken;
-        }
-
-        $this->effectiveThunderTokenResolved = true;
-        $this->resolvedEffectiveThunderToken = $this->resolveEffectiveThunderToken();
-
-        return $this->resolvedEffectiveThunderToken;
-    }
-
-    protected function resolveEffectiveThunderToken(): ?string
-    {
-        $server = app(ServerThunderApi::class);
-
-        if ($server->isConfigured()) {
-            try {
-                return $server->token();
-            } catch (Throwable) {
-                // Fall back to the user's own token below.
-            }
-        }
-
-        $token = ThunderApiToken::query()->find(auth()->id());
-
-        if (! $token instanceof ThunderApiToken || $token->isExpired()) {
-            return null;
-        }
-
-        $refreshAfterHours = max(1, (int) config('peck.thunderapi_refresh.refresh_after_hours'));
-
-        if (! $token->isRefreshDue($refreshAfterHours)) {
-            return $token->token;
-        }
-
-        try {
-            $expires = app(ThunderApi::class)->refreshToken($token->token);
-        } catch (ThunderApiException) {
-            return $token->token;
-        }
-
-        if ($expires === null) {
-            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
-
-            return null;
-        }
-
-        $token->forceFill([
-            'expires_at' => $expires,
-            'refreshed_at' => now(),
-        ])->save();
-
-        return $token->token;
-    }
-
     public function isAdminRole(?string $role): bool
     {
         return in_array($role, self::ADMIN_ROLES, true);
@@ -543,7 +482,7 @@ class PeckUsersDashboard extends Component
         }
 
         $resolver = app(ResolveSquadronRoster::class);
-        $roster = $resolver->resolve($this->effectiveThunderToken());
+        $roster = $resolver->resolve();
 
         return $resolver->statusFor($selectedMember->gaijin_id, $roster);
     }
@@ -1173,7 +1112,7 @@ class PeckUsersDashboard extends Component
 
         $rosterUnreachable = false;
         $resolver = app(ResolveSquadronRoster::class);
-        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable, $fresh);
+        $roster = $resolver->resolve(null, $rosterUnreachable, $fresh);
 
         return $resolver->roleFor($gaijinId, $roster);
     }
@@ -1203,7 +1142,7 @@ class PeckUsersDashboard extends Component
             return 'squadron_id';
         }
 
-        if (! $this->thunderLoggedIn()) {
+        if ($this->isSquadronLogsSection() && ! $this->thunderLoggedIn()) {
             return $this->thunderPromptDismissed ? null : 'thunder';
         }
 
@@ -1427,9 +1366,7 @@ class PeckUsersDashboard extends Component
 
         $clanId = (string) config('peck.squadron_id');
 
-        $token = $this->resolveSquadronToken();
-
-        if ($token === null || $clanId === '') {
+        if ($clanId === '') {
             return;
         }
 
@@ -1438,15 +1375,7 @@ class PeckUsersDashboard extends Component
         $this->squadronApplicantsErrorMessage = '';
 
         try {
-            $applicants = app(ThunderApi::class)->getClanApplicants($token->token, $clanId);
-        } catch (ThunderApiUnauthorizedException $exception) {
-            $token->forceFill(['expires_at' => now()->subSecond()->timestamp])->save();
-
-            $this->squadronApplicantsLoading = false;
-            $this->squadronApplicantsFailed = true;
-            $this->squadronApplicantsErrorMessage = $exception->getMessage();
-
-            return;
+            $applicants = app(ThunderApi::class)->getClanApplicants(null, $clanId);
         } catch (ThunderApiException $exception) {
             $this->squadronApplicantsLoading = false;
             $this->squadronApplicantsFailed = true;
@@ -1532,6 +1461,12 @@ class PeckUsersDashboard extends Component
 
     public function openRejectApplicantModal(): void
     {
+        if (! $this->thunderLoggedIn()) {
+            $this->applicantActionError = __('Connect your ThunderAPI account to accept or reject applications.');
+
+            return;
+        }
+
         if (! $this->ensureVerifiedForEdit()) {
             return;
         }
@@ -1550,6 +1485,12 @@ class PeckUsersDashboard extends Component
 
     public function acceptApplicant(): void
     {
+        if (! $this->thunderLoggedIn()) {
+            $this->applicantActionError = __('Connect your ThunderAPI account to accept or reject applications.');
+
+            return;
+        }
+
         $this->performApplicantAction('accept');
     }
 
@@ -1849,7 +1790,7 @@ class PeckUsersDashboard extends Component
         } else {
             $usernames = $usernameGaijinIds === []
                 ? []
-                : app(ResolveUsernames::class)->resolve($usernameGaijinIds, $this->effectiveThunderToken(), $unreachable);
+                : app(ResolveUsernames::class)->resolve($usernameGaijinIds, $unreachable);
         }
 
         $memberStatuses = $this->resolveMemberStatuses($shownUsers, $selectedMember, $unreachable);
@@ -1978,7 +1919,7 @@ class PeckUsersDashboard extends Component
         }
 
         $usernamesUnreachable = false;
-        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds, $this->effectiveThunderToken(), $usernamesUnreachable);
+        $usernames = app(ResolveUsernames::class)->resolve($gaijinIds, $usernamesUnreachable);
         $unreachable = $unreachable || $usernamesUnreachable;
 
         return $usernames;
@@ -1998,7 +1939,7 @@ class PeckUsersDashboard extends Component
 
         $rosterUnreachable = false;
         $resolver = app(ResolveSquadronRoster::class);
-        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $roster = $resolver->resolve(null, $rosterUnreachable);
         $unreachable = $unreachable || $rosterUnreachable;
 
         $statuses = [];
@@ -2072,7 +2013,7 @@ class PeckUsersDashboard extends Component
 
         $rosterUnreachable = false;
         $resolver = app(ResolveSquadronRoster::class);
-        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $roster = $resolver->resolve(null, $rosterUnreachable);
         $unreachable = $unreachable || $rosterUnreachable;
 
         $joinDates = [];
@@ -2099,7 +2040,7 @@ class PeckUsersDashboard extends Component
 
         $rosterUnreachable = false;
         $resolver = app(ResolveSquadronRoster::class);
-        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $roster = $resolver->resolve(null, $rosterUnreachable);
         $unreachable = $unreachable || $rosterUnreachable;
 
         $initiator = $resolver->initiatorFor($selectedMember->gaijin_id, $roster);
@@ -2122,7 +2063,7 @@ class PeckUsersDashboard extends Component
 
         $rosterUnreachable = false;
         $resolver = app(ResolveSquadronRoster::class);
-        $roster = $resolver->resolve($this->effectiveThunderToken(), null, $rosterUnreachable);
+        $roster = $resolver->resolve(null, $rosterUnreachable);
         $unreachable = $unreachable || $rosterUnreachable;
 
         return $resolver->roleFor($selectedMember->gaijin_id, $roster);

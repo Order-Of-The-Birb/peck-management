@@ -356,13 +356,25 @@
                                         </flux:button>
                                     </flux:modal.close>
 
-                                    <flux:button type="button" variant="danger" wire:click="openRejectApplicantModal">
-                                        {{ __('Reject') }}
-                                    </flux:button>
+                                    @if ($this->thunderLoggedIn())
+                                        <flux:button type="button" variant="danger" wire:click="openRejectApplicantModal">
+                                            {{ __('Reject') }}
+                                        </flux:button>
 
-                                    <flux:button type="button" variant="primary" wire:click="acceptApplicant" wire:loading.attr="disabled" wire:target="acceptApplicant">
-                                        {{ __('Accept') }}
-                                    </flux:button>
+                                        <flux:button type="button" variant="primary" wire:click="acceptApplicant" wire:loading.attr="disabled" wire:target="acceptApplicant">
+                                            {{ __('Accept') }}
+                                        </flux:button>
+                                    @else
+                                        <div class="flex items-center gap-3">
+                                            <flux:text class="text-sm text-neutral-500 dark:text-neutral-400">
+                                                {{ __('Connect your ThunderAPI account to accept or reject applications.') }}
+                                            </flux:text>
+
+                                            <flux:button variant="primary" size="sm" :href="route('profile.edit')" wire:navigate>
+                                                {{ __('Open Settings') }}
+                                            </flux:button>
+                                        </div>
+                                    @endif
                                 </div>
                             </div>
                         @endif

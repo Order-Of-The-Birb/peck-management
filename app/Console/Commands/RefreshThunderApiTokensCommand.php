@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Actions\ServerThunderApi;
 use App\Actions\ThunderApi;
 use App\Models\ThunderApiToken;
 use Illuminate\Console\Command;
@@ -27,10 +26,8 @@ class RefreshThunderApiTokensCommand extends Command
     /**
      * Execute the console command.
      */
-    public function handle(ThunderApi $thunderApi, ServerThunderApi $serverThunderApi): int
+    public function handle(ThunderApi $thunderApi): int
     {
-        $this->refreshServerToken($serverThunderApi);
-
         $batchSize = max(1, (int) config('peck.thunderapi_refresh.batch_size'));
         $refreshAfterHours = max(1, (int) config('peck.thunderapi_refresh.refresh_after_hours'));
 
@@ -79,14 +76,5 @@ class RefreshThunderApiTokensCommand extends Command
         ));
 
         return self::SUCCESS;
-    }
-
-    protected function refreshServerToken(ServerThunderApi $serverThunderApi): void
-    {
-        try {
-            $serverThunderApi->refresh();
-        } catch (Throwable $throwable) {
-            $this->warn('Server ThunderAPI token: '.$throwable->getMessage());
-        }
     }
 }

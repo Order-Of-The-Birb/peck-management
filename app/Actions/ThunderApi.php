@@ -3,6 +3,7 @@
 namespace App\Actions;
 
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
@@ -116,12 +117,10 @@ class ThunderApi
      *
      * @throws ThunderApiException
      */
-    public function searchClans(string $token, string $query): array
+    public function searchClans(?string $token, string $query): array
     {
         try {
-            $response = Http::acceptJson()
-                ->withToken($token)
-                ->timeout(30)
+            $response = $this->request($token)
                 ->get($this->baseUrl().'/v1/clans/search', [
                     'clanName' => $query,
                     'clanTag' => $query,
@@ -193,7 +192,7 @@ class ThunderApi
      *
      * @throws ThunderApiException
      */
-    public function getClanLogs(string $token, string $clanId, ?string $fromEntry = null, int $limit = 10): array
+    public function getClanLogs(?string $token, string $clanId, ?string $fromEntry = null, int $limit = 10): array
     {
         $query = ['limit' => $limit];
 
@@ -202,9 +201,7 @@ class ThunderApi
         }
 
         try {
-            $response = Http::acceptJson()
-                ->withToken($token)
-                ->timeout(30)
+            $response = $this->request($token)
                 ->get($this->baseUrl().'/v1/clans/logs/'.$clanId, $query);
         } catch (ConnectionException) {
             $this->throwUnreachable();
@@ -244,12 +241,10 @@ class ThunderApi
      *
      * @throws ThunderApiException
      */
-    public function getClanApplicants(string $token, string $clanId): array
+    public function getClanApplicants(?string $token, string $clanId): array
     {
         try {
-            $response = Http::acceptJson()
-                ->withToken($token)
-                ->timeout(30)
+            $response = $this->request($token)
                 ->get($this->baseUrl().'/v1/clans/applicants/'.$clanId);
         } catch (ConnectionException) {
             $this->throwUnreachable();
@@ -283,12 +278,10 @@ class ThunderApi
      *
      * @throws ThunderApiException
      */
-    public function getClan(string $token, string $clanId): array
+    public function getClan(?string $token, string $clanId): array
     {
         try {
-            $response = Http::acceptJson()
-                ->withToken($token)
-                ->timeout(30)
+            $response = $this->request($token)
                 ->get($this->baseUrl().'/v1/clans/'.$clanId);
         } catch (ConnectionException) {
             $this->throwUnreachable();
@@ -319,7 +312,7 @@ class ThunderApi
      *
      * @throws ThunderApiException
      */
-    public function getUsersTerse(string $token, array $gaijinIds): array
+    public function getUsersTerse(?string $token, array $gaijinIds): array
     {
         $gaijinIds = array_values(array_unique(array_filter(
             array_map('intval', $gaijinIds),
@@ -336,9 +329,7 @@ class ThunderApi
             $query = implode('&', array_map(static fn (int $gaijinId): string => 'id='.$gaijinId, $chunk));
 
             try {
-                $response = Http::acceptJson()
-                    ->withToken($token)
-                    ->timeout(30)
+                $response = $this->request($token)
                     ->get($this->baseUrl().'/v1/users/terse?'.$query);
             } catch (ConnectionException) {
                 $this->throwUnreachable();
@@ -453,12 +444,10 @@ class ThunderApi
      *
      * @throws ThunderApiException
      */
-    public function searchUsers(string $token, string $nick, int $limit = 10): array
+    public function searchUsers(?string $token, string $nick, int $limit = 10): array
     {
         try {
-            $response = Http::acceptJson()
-                ->withToken($token)
-                ->timeout(10)
+            $response = $this->request($token, 10)
                 ->get($this->baseUrl().'/v1/users/search/'.rawurlencode($nick), [
                     'limit' => max(2, min(50, $limit)),
                 ]);
@@ -606,6 +595,17 @@ class ThunderApi
     protected function throwUnreachable(): never
     {
         throw new ThunderApiUnreachableException('Unable to reach ThunderAPI. Please try again later.');
+    }
+
+    private function request(?string $token, int $timeout = 30): PendingRequest
+    {
+        $request = Http::acceptJson()->timeout($timeout);
+
+        if ($token !== null && $token !== '') {
+            $request->withToken($token);
+        }
+
+        return $request;
     }
 
     protected function baseUrl(): string

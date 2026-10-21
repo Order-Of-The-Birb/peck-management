@@ -1,6 +1,5 @@
 <?php
 
-use App\Models\ThunderApiServerToken;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -13,8 +12,6 @@ test('automatic peck database refresh runs once when schedule is due', function 
     config()->set('peck.refresh_schedule', '12:00');
     config()->set('peck.squadron_name', 'Order Of The Birb');
     config()->set('peck.thunderapi_base_url', 'https://example.test');
-
-    ThunderApiServerToken::factory()->create(['token' => 'test-token']);
 
     Cache::forget((string) config('peck.auto_refresh.last_attempted_date_key'));
     Cache::forget((string) config('peck.auto_refresh.last_successful_date_key'));

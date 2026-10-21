@@ -4,7 +4,6 @@ use App\Models\ApiKey;
 use App\Models\Officer;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
-use App\Models\ThunderApiServerToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -14,16 +13,10 @@ beforeEach(function () {
 
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
     config()->set('peck.squadron_id', null);
-    config()->set('peck.thunderapi_server.email', null);
-    config()->set('peck.thunderapi_server.password', null);
 });
 
 test('api users index returns filtered records', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $matchingOfficer = PeckUser::factory()->create([
         'gaijin_id' => 800001,
@@ -65,7 +58,7 @@ test('api users index returns filtered records', function () {
         ->assertJsonMissingPath('data.0.initiator');
 
     Http::assertSent(fn ($request) => str_starts_with($request->url(), 'https://thunder.example/v1/users/terse')
-        && $request->hasHeader('Authorization', 'Bearer server-token'));
+        && ! $request->hasHeader('Authorization'));
 
     expect(collect($response->json('data'))->pluck('gaijin_id'))
         ->not->toContain($nonMatchingUser->gaijin_id);
@@ -73,10 +66,6 @@ test('api users index returns filtered records', function () {
 
 test('api users index searches by username', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $matchingUser = PeckUser::factory()->create([
         'gaijin_id' => 800010,
@@ -110,10 +99,6 @@ test('api users index searches by username', function () {
 
 test('api users show returns a single record with derived status', function () {
     config()->set('peck.squadron_id', '1061551');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
-
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
 
     $peckUser = PeckUser::factory()->create([
         'gaijin_id' => 810001,

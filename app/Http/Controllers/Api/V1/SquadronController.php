@@ -2,13 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Actions\ServerThunderApi;
 use App\Actions\ThunderApi;
 use App\Actions\ThunderApiException;
-use App\Actions\ThunderApiUnauthorizedException;
 use App\Actions\ThunderApiUnreachableException;
 use App\Http\Controllers\Controller;
-use App\Models\ThunderApiServerToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -16,7 +13,6 @@ class SquadronController extends Controller
 {
     public function __construct(
         private readonly ThunderApi $thunderApi,
-        private readonly ServerThunderApi $serverThunderApi,
     ) {}
 
     /**
@@ -46,14 +42,8 @@ class SquadronController extends Controller
             return $this->errorResponse(503, 'Squadron ID is not configured.');
         }
 
-        if (! $this->serverThunderApi->isConfigured()) {
-            return $this->errorResponse(503, 'ThunderAPI server account is not configured.');
-        }
-
         try {
-            $applicants = $this->thunderApiRequest(
-                fn (string $token): array => $this->thunderApi->getClanApplicants($token, $clanId),
-            );
+            $applicants = $this->thunderApi->getClanApplicants(null, $clanId);
         } catch (ThunderApiException $exception) {
             return $this->thunderApiErrorResponse($exception);
         }
@@ -77,52 +67,23 @@ class SquadronController extends Controller
             return $this->errorResponse(503, 'Squadron ID is not configured.');
         }
 
-        if (! $this->serverThunderApi->isConfigured()) {
-            return $this->errorResponse(503, 'ThunderAPI server account is not configured.');
-        }
-
         $validated = $request->validate([
             'limit' => ['nullable', 'integer', 'between:1,50'],
             'from_entry' => ['nullable', 'string', 'max:255'],
         ]);
 
         try {
-            $result = $this->thunderApiRequest(
-                fn (string $token): array => $this->thunderApi->getClanLogs(
-                    $token,
-                    $clanId,
-                    $validated['from_entry'] ?? null,
-                    $validated['limit'] ?? 10,
-                ),
+            $result = $this->thunderApi->getClanLogs(
+                null,
+                $clanId,
+                $validated['from_entry'] ?? null,
+                $validated['limit'] ?? 10,
             );
         } catch (ThunderApiException $exception) {
             return $this->thunderApiErrorResponse($exception);
         }
 
         return response()->json($result);
-    }
-
-    /**
-     * Run a ThunderAPI request with the server-wide token, re-authenticating once on rejection.
-     *
-     * @param  callable(string): array<string, mixed>  $request
-     * @return array<string, mixed>
-     *
-     * @throws ThunderApiException
-     */
-    private function thunderApiRequest(callable $request): array
-    {
-        $token = $this->serverThunderApi->token();
-
-        try {
-            return $request($token);
-        } catch (ThunderApiUnauthorizedException) {
-            ThunderApiServerToken::query()
-                ->where('token', $token)
-                ->update(['expires_at' => now()->subSecond()->timestamp]);
-
-            return $request($this->serverThunderApi->token());
-        }
     }
 
     /**

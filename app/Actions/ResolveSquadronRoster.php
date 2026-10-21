@@ -2,8 +2,6 @@
 
 namespace App\Actions;
 
-use App\Models\ThunderApiServerToken;
-use App\Models\ThunderApiToken;
 use Illuminate\Support\Facades\Cache;
 use Throwable;
 
@@ -25,21 +23,19 @@ class ResolveSquadronRoster
 
     public function __construct(
         private readonly ThunderApi $thunderApi,
-        private readonly ServerThunderApi $serverThunderApi,
     ) {}
 
     /**
      * Resolve the squadron roster (members and applicants) from ThunderAPI.
      *
      * The roster is cached so repeated status lookups do not hammer ThunderAPI.
-     * When a token is provided it is used directly; otherwise the server-wide
-     * login is used, falling back to the authenticated user's own token.
+     * The clan endpoint is public, so no client token is required.
      *
      * Pass $fresh as true to bypass the cached roster and fetch a new copy.
      *
      * @return array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}
      */
-    public function resolve(?string $token = null, ?string $clanId = null, ?bool &$unreachable = null, bool $fresh = false): array
+    public function resolve(?string $clanId = null, ?bool &$unreachable = null, bool $fresh = false): array
     {
         $unreachable = false;
 
@@ -59,21 +55,7 @@ class ResolveSquadronRoster
             }
         }
 
-        try {
-            $token ??= $this->resolveToken();
-        } catch (ThunderApiUnreachableException) {
-            $unreachable = true;
-
-            return $this->emptyRoster();
-        } catch (Throwable) {
-            return $this->emptyRoster();
-        }
-
-        if ($token === null) {
-            return $this->emptyRoster();
-        }
-
-        $clan = $this->fetchClan($token, $clanId, $unreachable);
+        $clan = $this->fetchClan($clanId, $unreachable);
 
         if ($clan === null) {
             return $this->emptyRoster();
@@ -94,40 +76,14 @@ class ResolveSquadronRoster
     }
 
     /**
-     * Fetch the clan data, re-authenticating once when the token was rejected.
+     * Fetch the clan data from the public clan endpoint.
      *
      * @return array<string, mixed>|null
      */
-    protected function fetchClan(string $token, string $clanId, bool &$unreachable): ?array
+    protected function fetchClan(string $clanId, bool &$unreachable): ?array
     {
         try {
-            return $this->thunderApi->getClan($token, $clanId);
-        } catch (ThunderApiUnauthorizedException) {
-            $this->expireToken($token);
-
-            try {
-                $freshToken = $this->resolveToken();
-            } catch (ThunderApiUnreachableException) {
-                $unreachable = true;
-
-                return null;
-            } catch (Throwable) {
-                return null;
-            }
-
-            if ($freshToken === null || $freshToken === $token) {
-                return null;
-            }
-
-            try {
-                return $this->thunderApi->getClan($freshToken, $clanId);
-            } catch (ThunderApiUnreachableException) {
-                $unreachable = true;
-
-                return null;
-            } catch (Throwable) {
-                return null;
-            }
+            return $this->thunderApi->getClan(null, $clanId);
         } catch (ThunderApiUnreachableException) {
             $unreachable = true;
 
@@ -135,20 +91,6 @@ class ResolveSquadronRoster
         } catch (Throwable) {
             return null;
         }
-    }
-
-    /**
-     * Expire the stored copy of a rejected token so it gets re-authenticated.
-     */
-    protected function expireToken(string $token): void
-    {
-        ThunderApiServerToken::query()
-            ->where('token', $token)
-            ->update(['expires_at' => now()->subSecond()->timestamp]);
-
-        ThunderApiToken::query()
-            ->where('token', $token)
-            ->update(['expires_at' => now()->subSecond()->timestamp]);
     }
 
     /**
@@ -233,23 +175,6 @@ class ResolveSquadronRoster
             'member_initiators' => [],
             'member_roles' => [],
         ];
-    }
-
-    protected function resolveToken(): ?string
-    {
-        if ($this->serverThunderApi->isConfigured()) {
-            try {
-                return $this->serverThunderApi->token();
-            } catch (ThunderApiUnreachableException) {
-                throw new ThunderApiUnreachableException('Unable to reach ThunderAPI. Please try again later.');
-            } catch (Throwable) {
-                // Fall back to the authenticated user's token below.
-            }
-        }
-
-        $token = ThunderApiToken::query()->find(auth()->id());
-
-        return $token instanceof ThunderApiToken && ! $token->isExpired() ? $token->token : null;
     }
 
     protected function cacheSeconds(): int

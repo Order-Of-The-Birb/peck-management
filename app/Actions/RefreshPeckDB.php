@@ -60,9 +60,7 @@ class RefreshPeckDB
      */
     protected function fetchSquadronMembers(string $squadronName): array
     {
-        $token = $this->authenticate();
-
-        $clan = $this->findClan($token, $squadronName);
+        $clan = $this->findClan($squadronName);
 
         $clanId = (int) ($clan['id'] ?? $clan['_id'] ?? 0);
 
@@ -70,7 +68,7 @@ class RefreshPeckDB
             throw new RuntimeException('Squadron search response is missing a valid clan id.');
         }
 
-        $members = $this->fetchClanMembers($token, $clanId);
+        $members = $this->fetchClanMembers($clanId);
 
         $normalizedMembers = [];
 
@@ -104,18 +102,12 @@ class RefreshPeckDB
         return rtrim($baseUrl, '/');
     }
 
-    protected function authenticate(): string
-    {
-        return app(ServerThunderApi::class)->token();
-    }
-
     /**
      * @return array<string, mixed>
      */
-    protected function findClan(string $token, string $squadronName): array
+    protected function findClan(string $squadronName): array
     {
         $response = Http::acceptJson()
-            ->withToken($token)
             ->timeout(20)
             ->retry(3, 500, throw: false)
             ->get($this->baseUrl().'/v1/clans/search', [
@@ -156,10 +148,9 @@ class RefreshPeckDB
     /**
      * @return list<array<string, mixed>>
      */
-    protected function fetchClanMembers(string $token, int $clanId): array
+    protected function fetchClanMembers(int $clanId): array
     {
         $response = Http::acceptJson()
-            ->withToken($token)
             ->timeout(20)
             ->retry(3, 500, throw: false)
             ->get($this->baseUrl().'/v1/clans/'.$clanId);

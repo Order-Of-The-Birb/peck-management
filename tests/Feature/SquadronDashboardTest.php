@@ -87,7 +87,7 @@ test('the squadron id block takes precedence over the thunderapi block', functio
         ->assertDontSee('ThunderAPI connection required');
 });
 
-test('squadron applications share the squadron block', function () {
+test('squadron applications are viewable without a thunderapi login', function () {
     $user = User::factory()->create();
 
     Http::fake();
@@ -95,7 +95,8 @@ test('squadron applications share the squadron block', function () {
     actingAs($user);
 
     Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
-        ->assertSee('ThunderAPI connection required');
+        ->assertDontSee('ThunderAPI connection required')
+        ->assertSee('There are no applicants currently.');
 });
 
 test('squadron logs render as cards with action, actor and datetime', function () {
@@ -451,6 +452,34 @@ test('opening an application modal shows the applicants details and comment', fu
         ->assertSee('UTC+2')
         ->assertSee('Looking to join the squadron.')
         ->assertSee('Comment');
+});
+
+test('applicant modal requires a thunderapi login to accept or reject', function () {
+    $user = User::factory()->create();
+
+    Http::fake([
+        'https://thunder.example/v1/clans/applicants/*' => Http::response([
+            [
+                'uid' => '12345678',
+                'nickname' => 'ApplicantOne',
+                'timestamp' => 1790000000,
+                'comment' => '',
+                'geo' => ['country' => 'Germany', 'offset' => 2, 'city' => 'Berlin'],
+            ],
+        ], 200),
+    ]);
+
+    actingAs($user);
+
+    Livewire::test(PeckUsersDashboard::class, ['section' => 'squadron_applications'])
+        ->call('openApplicantModal', '12345678')
+        ->assertSee('Connect your ThunderAPI account to accept or reject applications.')
+        ->assertDontSee('Accept')
+        ->call('acceptApplicant')
+        ->assertSet('applicantActionError', 'Connect your ThunderAPI account to accept or reject applications.')
+        ->assertSet('showApplicantModal', true);
+
+    Http::assertNotSent(fn ($request) => str_contains($request->url(), '/v1/clans/accept/'));
 });
 
 test('accepting an application posts to the accept endpoint and refreshes the list', function () {

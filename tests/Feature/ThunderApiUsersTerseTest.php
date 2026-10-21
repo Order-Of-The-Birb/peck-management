@@ -2,7 +2,7 @@
 
 use App\Actions\ResolveUsernames;
 use App\Actions\ThunderApi;
-use App\Models\ThunderApiServerToken;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
@@ -10,8 +10,6 @@ beforeEach(function () {
     Cache::flush();
 
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
-    config()->set('peck.thunderapi_server.email', 'server@example.com');
-    config()->set('peck.thunderapi_server.password', 'server-password');
 });
 
 test('thunderapi terse lookup returns nicknames keyed by gaijin id', function () {
@@ -37,8 +35,6 @@ test('thunderapi terse lookup returns nicknames keyed by gaijin id', function ()
 });
 
 test('resolve usernames caches results and avoids repeat lookups', function () {
-    ThunderApiServerToken::factory()->create(['token' => 'server-token']);
-
     Http::fake([
         'https://thunder.example/v1/users/terse*' => Http::response([
             '800001' => ['nick' => 'CachedUser'],
@@ -57,13 +53,12 @@ test('resolve usernames caches results and avoids repeat lookups', function () {
     Http::assertNothingSent();
 });
 
-test('resolve usernames returns empty when thunderapi is not configured', function () {
-    config()->set('peck.thunderapi_server.email', null);
-    config()->set('peck.thunderapi_server.password', null);
-
-    Http::fake();
+test('resolve usernames returns empty when thunderapi is unreachable', function () {
+    Http::fake([
+        'https://thunder.example/v1/users/terse*' => function (): never {
+            throw new ConnectionException('cURL error 7: Failed to connect');
+        },
+    ]);
 
     expect(app(ResolveUsernames::class)->resolve([800001]))->toBe([]);
-
-    Http::assertNothingSent();
 });
