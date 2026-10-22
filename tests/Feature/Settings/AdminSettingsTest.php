@@ -405,6 +405,7 @@ test('admin can force a refresh with a global ten minute cooldown', function () 
     $this->actingAs($admin);
 
     config()->set('peck.squadron_name', 'Order Of The Birb');
+    config()->set('peck.squadron_id', '1061551');
     config()->set('peck.thunderapi_base_url', 'https://thunder.example');
 
     Cache::forget((string) config('peck.force_refresh.lock_key'));
