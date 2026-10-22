@@ -123,6 +123,6 @@ class PeckUserContext extends Model
 
     private static function dispatchCacheInvalidation(): void
     {
-        NotifyDiscordBotCacheInvalidation::dispatch()->onConnection('database');
+        NotifyDiscordBotCacheInvalidation::dispatchDebounced();
     }
 }

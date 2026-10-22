@@ -11,7 +11,7 @@ class InvalidateCacheController extends Controller
 {
     public function __invoke(TriggerCacheInvalidationRequest $request): JsonResponse
     {
-        NotifyDiscordBotCacheInvalidation::dispatch()->onConnection('database');
+        NotifyDiscordBotCacheInvalidation::dispatchDebounced();
 
         return response()->json([
             'status' => 'queued',

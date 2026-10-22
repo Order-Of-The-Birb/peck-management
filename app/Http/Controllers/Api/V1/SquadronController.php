@@ -1,0 +1,132 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Actions\ThunderApi;
+use App\Actions\ThunderApiException;
+use App\Actions\ThunderApiUnreachableException;
+use App\Http\Controllers\Controller;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class SquadronController extends Controller
+{
+    public function __construct(
+        private readonly ThunderApi $thunderApi,
+    ) {}
+
+    /**
+     * Return the clan ID that PECK Management operates against.
+     */
+    public function clanId(): JsonResponse
+    {
+        $clanId = $this->squadronId();
+
+        if ($clanId === null) {
+            return $this->errorResponse(503, 'Squadron ID is not configured.');
+        }
+
+        return response()->json([
+            'clan_id' => $clanId,
+        ]);
+    }
+
+    /**
+     * List the squadron's current membership applications.
+     */
+    public function applicants(Request $request): JsonResponse
+    {
+        $clanId = $this->squadronId();
+
+        if ($clanId === null) {
+            return $this->errorResponse(503, 'Squadron ID is not configured.');
+        }
+
+        try {
+            $applicants = $this->thunderApi->getClanApplicants(null, $clanId);
+        } catch (ThunderApiException $exception) {
+            return $this->thunderApiErrorResponse($exception);
+        }
+
+        return response()->json([
+            'data' => array_map(
+                fn (array $applicant): array => $this->normalizeApplicant($applicant),
+                $applicants,
+            ),
+        ]);
+    }
+
+    /**
+     * List the squadron's activity log entries.
+     */
+    public function logs(Request $request): JsonResponse
+    {
+        $clanId = $this->squadronId();
+
+        if ($clanId === null) {
+            return $this->errorResponse(503, 'Squadron ID is not configured.');
+        }
+
+        $validated = $request->validate([
+            'limit' => ['nullable', 'integer', 'between:1,50'],
+            'from_entry' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        try {
+            $result = $this->thunderApi->getClanLogs(
+                null,
+                $clanId,
+                $validated['from_entry'] ?? null,
+                $validated['limit'] ?? 10,
+            );
+        } catch (ThunderApiException $exception) {
+            return $this->thunderApiErrorResponse($exception);
+        }
+
+        return response()->json($result);
+    }
+
+    /**
+     * @param  array<string, mixed>  $applicant
+     * @return array<string, mixed>
+     */
+    private function normalizeApplicant(array $applicant): array
+    {
+        $uid = $applicant['uid'] ?? null;
+        $timestamp = $applicant['timestamp'] ?? null;
+        $geo = $applicant['geo'] ?? null;
+        $country = is_array($geo) ? ($geo['country'] ?? null) : null;
+        $city = is_array($geo) ? ($geo['city'] ?? null) : null;
+        $offset = is_array($geo) ? ($geo['offset'] ?? null) : null;
+
+        return [
+            'uid' => is_numeric($uid) ? (string) $uid : '',
+            'nickname' => (string) ($applicant['nickname'] ?? ''),
+            'timestamp' => is_numeric($timestamp) ? (int) $timestamp : null,
+            'comment' => (string) ($applicant['comment'] ?? ''),
+            'country' => is_string($country) && $country !== '' ? $country : null,
+            'city' => is_string($city) && $city !== '' ? $city : null,
+            'timezone' => is_numeric($offset) ? $offset : null,
+        ];
+    }
+
+    private function squadronId(): ?string
+    {
+        $clanId = trim((string) config('peck.squadron_id'));
+
+        return $clanId !== '' ? $clanId : null;
+    }
+
+    private function thunderApiErrorResponse(ThunderApiException $exception): JsonResponse
+    {
+        return $this->errorResponse(
+            $exception instanceof ThunderApiUnreachableException ? 503 : 502,
+            $exception->getMessage(),
+        );
+    }
+
+    private function errorResponse(int $status, string $message): JsonResponse
+    {
+        return response()->json(['message' => $message], $status);
+    }
+}
