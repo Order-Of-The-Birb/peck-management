@@ -332,6 +332,32 @@ test('non-admin users can open the member modal but not edit or manage', functio
         ->assertDontSee('Edit');
 });
 
+test('users with site write access can edit members without a thunder admin role', function () {
+    $user = User::factory()->create(['level' => 2]);
+
+    ThunderApiToken::factory()->create([
+        'user_id' => $user->id,
+        'token' => 'supervisor-token',
+    ]);
+
+    $this->actingAs($user);
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Private'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create([
+        'gaijin_id' => 800150,
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Edit')
+        ->assertDontSee('Manage')
+        ->call('enterMemberEditMode')
+        ->assertSet('memberEditMode', true);
+});
+
 test('admins can edit member fields and save changes', function () {
     actingThunderAdmin('Commander');
 

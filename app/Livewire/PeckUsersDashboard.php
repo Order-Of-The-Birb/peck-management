@@ -459,18 +459,33 @@ class PeckUsersDashboard extends Component
         return in_array($role, self::ADMIN_ROLES, true);
     }
 
+    /**
+     * Whether the current user may edit the member database.
+     *
+     * Users with site write access (access level 1 or higher) always may, as
+     * do squadron officers, deputies and commanders regardless of their level.
+     */
     public function canEdit(): bool
     {
-        return $this->isAdminRole($this->thunderRole());
+        $user = auth()->user();
+
+        if (! $user instanceof User) {
+            return false;
+        }
+
+        return (int) $user->level >= 1 || $this->isAdminRole($this->thunderRole());
     }
 
     /**
      * Whether the selected member is still in the squadron, so the Manage
      * tab remains relevant.
+     *
+     * Managing (kicking, role changes) requires an in-game squadron role, not
+     * merely site write access.
      */
     public function canManageSelectedMember(): bool
     {
-        return $this->canEdit() && $this->selectedMemberStatus() !== 'ex_member';
+        return $this->isAdminRole($this->thunderRole()) && $this->selectedMemberStatus() !== 'ex_member';
     }
 
     protected function selectedMemberStatus(): ?string
