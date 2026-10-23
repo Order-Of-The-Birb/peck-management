@@ -358,6 +358,26 @@ test('users with site write access can edit members without a thunder admin role
         ->assertSet('memberEditMode', true);
 });
 
+test('expected sqb participation checkbox is read-only outside edit mode', function () {
+    actingThunderAdmin('Commander');
+
+    Http::fake([
+        'https://thunder.example/v1/users/self' => Http::response(thunderSelfResponse('Commander'), 200),
+    ]);
+
+    $member = PeckUser::factory()->create([
+        'gaijin_id' => 800151,
+    ]);
+
+    Livewire::test(PeckUsersDashboard::class)
+        ->call('openMemberModal', $member->gaijin_id)
+        ->assertSee('Expected SQB Participation')
+        ->assertDontSeeHtml('wire:model="memberForm.sqb_part"')
+        ->assertSeeHtml('data-flux-checkbox')
+        ->call('enterMemberEditMode')
+        ->assertSeeHtml('wire:model="memberForm.sqb_part"');
+});
+
 test('admins can edit member fields and save changes', function () {
     actingThunderAdmin('Commander');
 
