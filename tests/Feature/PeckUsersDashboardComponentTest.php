@@ -22,14 +22,30 @@ beforeEach(function () {
 
 function thunderSelfResponse(string $role): array
 {
+    $roleValues = [
+        'Commander' => 1,
+        'Officer' => 2,
+        'Private' => 3,
+        'Unknown' => 4,
+        'Deputy' => 5,
+        'Sergeant' => 6,
+    ];
+
     return [
-        'userId' => '424242',
         'nick' => 'TestAdmin',
-        'squadron' => [
-            'user' => [
-                'role' => ['name' => $role, 'value' => 1],
-            ],
+        'last_login' => '2026-01-01',
+        'registered_at' => '2020-01-01T00:00:00Z',
+        'id' => 424242,
+        'rank' => ['title' => 'MARSHAL', 'level' => 100],
+        'clan' => [
+            'name' => 'Order Of The Birb',
+            'tag' => '-PECK-',
+            'type' => 0,
+            'role' => $roleValues[$role] ?? 3,
+            'id' => 1061551,
         ],
+        'numEliteUnits' => 1,
+        'penaltyStatus' => 'CLEAN',
     ];
 }
 
@@ -89,8 +105,8 @@ test('members list is searchable by username', function () {
 
     Http::fake([
         'https://thunder.example/v1/users/terse*' => Http::response([
-            '800011' => ['nick' => 'AlphaBird'],
-            '800012' => ['nick' => 'OtherUser'],
+            '800011' => ['username' => 'AlphaBird'],
+            '800012' => ['username' => 'OtherUser'],
         ], 200),
     ]);
 
@@ -107,8 +123,8 @@ test('members list can be sorted by username', function () {
 
     Http::fake([
         'https://thunder.example/v1/users/terse*' => Http::response([
-            (string) $first->gaijin_id => ['nick' => 'ZuluBird'],
-            (string) $second->gaijin_id => ['nick' => 'AlphaBird'],
+            (string) $first->gaijin_id => ['username' => 'ZuluBird'],
+            (string) $second->gaijin_id => ['username' => 'AlphaBird'],
         ], 200),
     ]);
 
@@ -906,7 +922,7 @@ test('member username resolves through the user thunderapi token when server log
     Http::fake([
         'https://thunder.example/v1/login' => Http::response(['detail' => 'Invalid credentials'], 401),
         'https://thunder.example/v1/users/terse*' => Http::response([
-            '801300' => ['nick' => 'AlphaBird'],
+            '801300' => ['username' => 'AlphaBird'],
         ], 200),
     ]);
 
@@ -921,7 +937,7 @@ test('members list resolves usernames via the terse endpoint using the server lo
 
     Http::fake([
         'https://thunder.example/v1/users/terse*' => Http::response([
-            '802001' => ['nick' => 'AlphaBird'],
+            '802001' => ['username' => 'AlphaBird'],
         ], 200),
     ]);
 

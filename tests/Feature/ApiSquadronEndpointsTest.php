@@ -44,8 +44,8 @@ test('api logs returns squadron log entries with the paging cursor', function ()
                 [
                     'timestamp' => 1790000000,
                     'action' => ['value' => 1, 'detail' => 'Accept membership request'],
-                    'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
-                    'affected' => ['_id' => 222, 'nickname' => 'NewMember'],
+                    'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
+                    'affected' => ['id' => 222, 'nickname' => 'NewMember'],
                 ],
             ],
         ], 200),

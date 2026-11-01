@@ -409,9 +409,13 @@ class PeckUsersDashboard extends Component
             return null;
         }
 
-        $role = $self['squadron']['user']['role']['name'] ?? null;
+        $roleValue = $self['clan']['role'] ?? null;
 
-        return is_string($role) && $role !== '' ? $role : null;
+        if (! is_numeric($roleValue)) {
+            return null;
+        }
+
+        return app(ResolveSquadronRoster::class)->roleName((int) $roleValue);
     }
 
     /**
@@ -449,7 +453,7 @@ class PeckUsersDashboard extends Component
     {
         $self = $this->thunderSelf();
 
-        $userId = $self['userId'] ?? $self['userid'] ?? null;
+        $userId = $self['id'] ?? null;
 
         return is_numeric($userId) && (int) $userId > 0 ? (int) $userId : null;
     }
@@ -1256,11 +1260,11 @@ class PeckUsersDashboard extends Component
 
         $admin = $entry['admin'] ?? null;
         $adminNickname = is_array($admin) ? (string) ($admin['nickname'] ?? '') : '';
-        $adminId = is_array($admin) ? ($admin['_id'] ?? null) : null;
+        $adminId = is_array($admin) ? ($admin['id'] ?? null) : null;
 
         $affected = $entry['affected'] ?? null;
         $affectedNickname = is_array($affected) ? (string) ($affected['nickname'] ?? '') : '';
-        $affectedId = is_array($affected) ? ($affected['_id'] ?? null) : null;
+        $affectedId = is_array($affected) ? ($affected['id'] ?? null) : null;
 
         $roleChange = $entry['roleChange'] ?? null;
         $roleOld = is_array($roleChange) ? ($roleChange['old'] ?? null) : null;

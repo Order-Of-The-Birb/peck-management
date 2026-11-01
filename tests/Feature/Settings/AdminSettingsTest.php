@@ -271,8 +271,8 @@ test('delete user section filters war thunder users by username and shows empty 
 
     Http::fake([
         'https://thunder.example/v1/users/terse*' => Http::response([
-            '910040' => ['nick' => 'MatchingBird'],
-            '910041' => ['nick' => 'OtherBird'],
+            '910040' => ['username' => 'MatchingBird'],
+            '910041' => ['username' => 'OtherBird'],
         ], 200),
     ]);
 
