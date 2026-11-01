@@ -61,7 +61,7 @@ test('user can link a thunderapi account with two factor authentication', functi
                 'types' => ['Email'],
                 'requestId' => 'req-123',
                 'userId' => 456,
-            ], 401)
+            ], 206)
             ->push([
                 'status' => 'OK',
                 'token' => 'two-factor-token',
@@ -204,7 +204,7 @@ test('unreachable thunderapi shows a friendly error during two factor authentica
             'types' => ['Email'],
             'requestId' => 'req-123',
             'userId' => 456,
-        ], 401),
+        ], 206),
         'https://thunder.example/v1/answer-2fa' => fn () => throw new ConnectionException('cURL error 7: Failed to connect to server'),
     ]);
 

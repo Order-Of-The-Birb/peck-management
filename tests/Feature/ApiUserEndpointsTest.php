@@ -43,7 +43,7 @@ test('api users index returns filtered records', function () {
             'applicants' => [],
         ], 200),
         'https://thunder.example/v1/users/terse*' => Http::response([
-            (string) $matchingUser->gaijin_id => ['nick' => 'Maho_Yoshino'],
+            (string) $matchingUser->gaijin_id => ['username' => 'Maho_Yoshino'],
         ], 200),
     ]);
 
@@ -81,8 +81,8 @@ test('api users index searches by username', function () {
             'applicants' => [],
         ], 200),
         'https://thunder.example/v1/users/terse*' => Http::response([
-            (string) $matchingUser->gaijin_id => ['nick' => 'Maho_Yoshino'],
-            (string) $nonMatchingUser->gaijin_id => ['nick' => 'Some_Other_Name'],
+            (string) $matchingUser->gaijin_id => ['username' => 'Maho_Yoshino'],
+            (string) $nonMatchingUser->gaijin_id => ['username' => 'Some_Other_Name'],
         ], 200),
     ]);
 
@@ -110,7 +110,7 @@ test('api users show returns a single record with derived status', function () {
             'applicants' => [],
         ], 200),
         'https://thunder.example/v1/users/terse*' => Http::response([
-            (string) $peckUser->gaijin_id => ['nick' => 'Maho_Yoshino'],
+            (string) $peckUser->gaijin_id => ['username' => 'Maho_Yoshino'],
         ], 200),
     ]);
 

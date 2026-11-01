@@ -116,14 +116,14 @@ test('squadron logs render as cards with action, actor and datetime', function (
                 [
                     'timestamp' => $timestamp,
                     'action' => ['value' => 1, 'detail' => 'Accept membership request'],
-                    'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
-                    'affected' => ['_id' => 222, 'nickname' => 'NewMember'],
+                    'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
+                    'affected' => ['id' => 222, 'nickname' => 'NewMember'],
                 ],
                 [
                     'timestamp' => $timestamp,
                     'action' => ['value' => 2, 'detail' => 'Role change'],
-                    'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
-                    'affected' => ['_id' => 222, 'nickname' => 'NewMember'],
+                    'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
+                    'affected' => ['id' => 222, 'nickname' => 'NewMember'],
                     'roleChange' => ['old' => 'Private', 'new' => 'Officer'],
                 ],
             ],
@@ -158,8 +158,8 @@ test('show more requests the next page using the previous lastLog', function () 
                     [
                         'timestamp' => 1790000000,
                         'action' => ['value' => 1, 'detail' => 'Accept membership request'],
-                        'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
-                        'affected' => ['_id' => 222, 'nickname' => 'NewMember'],
+                        'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
+                        'affected' => ['id' => 222, 'nickname' => 'NewMember'],
                     ],
                 ],
             ], 200)
@@ -169,7 +169,7 @@ test('show more requests the next page using the previous lastLog', function () 
                     [
                         'timestamp' => 1790000100,
                         'action' => ['value' => 0, 'detail' => 'Kick user/Leave'],
-                        'affected' => ['_id' => 333, 'nickname' => 'Leaver'],
+                        'affected' => ['id' => 333, 'nickname' => 'Leaver'],
                     ],
                 ],
             ], 200),
@@ -206,7 +206,7 @@ test('unknown log actions render a generic unknown action label', function () {
                 [
                     'timestamp' => 1790000000,
                     'action' => ['value' => 99, 'detail' => 'Some future action'],
-                    'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
+                    'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
                 ],
             ],
         ], 200),
@@ -233,13 +233,13 @@ test('squadron logs distinguish kicks from self-initiated leaves', function () {
                 [
                     'timestamp' => 1790000000,
                     'action' => ['value' => 0, 'detail' => 'Kick user/Leave'],
-                    'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
-                    'affected' => ['_id' => 222, 'nickname' => 'NewMember'],
+                    'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
+                    'affected' => ['id' => 222, 'nickname' => 'NewMember'],
                 ],
                 [
                     'timestamp' => 1790000100,
                     'action' => ['value' => 0, 'detail' => 'Kick user/Leave'],
-                    'affected' => ['_id' => 333, 'nickname' => 'Leaver'],
+                    'affected' => ['id' => 333, 'nickname' => 'Leaver'],
                 ],
             ],
         ], 200),
@@ -276,8 +276,8 @@ test('squadron logs refresh a stale thunderapi token before loading', function (
                 [
                     'timestamp' => 1790000000,
                     'action' => ['value' => 1, 'detail' => 'Accept membership request'],
-                    'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
-                    'affected' => ['_id' => 222, 'nickname' => 'NewMember'],
+                    'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
+                    'affected' => ['id' => 222, 'nickname' => 'NewMember'],
                 ],
             ],
         ], 200),
@@ -312,8 +312,8 @@ test('squadron log description and application messages render with the wt-glyph
                 [
                     'timestamp' => 1790000000,
                     'action' => ['value' => 3, 'detail' => 'Rejected membership request'],
-                    'admin' => ['_id' => 111, 'nickname' => 'AdminOne'],
-                    'affected' => ['_id' => 222, 'nickname' => 'NewMember'],
+                    'admin' => ['id' => 111, 'nickname' => 'AdminOne'],
+                    'affected' => ['id' => 222, 'nickname' => 'NewMember'],
                     'comment' => 'Denied \u250e reason \u253f',
                 ],
                 [

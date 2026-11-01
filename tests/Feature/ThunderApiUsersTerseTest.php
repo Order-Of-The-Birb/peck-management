@@ -15,8 +15,8 @@ beforeEach(function () {
 test('thunderapi terse lookup returns nicknames keyed by gaijin id', function () {
     Http::fake([
         'https://thunder.example/v1/users/terse*' => Http::response([
-            '800001' => ['nick' => 'Alpha'],
-            '800002' => ['nick' => 'Beta'],
+            '800001' => ['username' => 'Alpha'],
+            '800002' => ['username' => 'Beta'],
         ], 200),
     ]);
 
@@ -37,7 +37,7 @@ test('thunderapi terse lookup returns nicknames keyed by gaijin id', function ()
 test('resolve usernames caches results and avoids repeat lookups', function () {
     Http::fake([
         'https://thunder.example/v1/users/terse*' => Http::response([
-            '800001' => ['nick' => 'CachedUser'],
+            '800001' => ['username' => 'CachedUser'],
         ], 200),
     ]);
 

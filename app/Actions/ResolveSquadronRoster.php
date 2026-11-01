@@ -163,6 +163,14 @@ class ResolveSquadronRoster
     }
 
     /**
+     * Map a raw squadron role index to its display name.
+     */
+    public function roleName(int $value): ?string
+    {
+        return self::ROLE_NAMES[$value] ?? null;
+    }
+
+    /**
      * @return array{resolved:bool,member_ids:list<int>,applicant_ids:list<int>,member_join_dates:array<int,int>,member_initiators:array<int,array{initiator:int,nickname:?string}>,member_roles:array<int,string>}
      */
     protected function emptyRoster(): array
