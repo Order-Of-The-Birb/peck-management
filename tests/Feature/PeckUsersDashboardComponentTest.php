@@ -51,7 +51,7 @@ function thunderSelfResponse(string $role): array
 
 function actingThunderAdmin(string $role = 'Commander'): User
 {
-    $user = User::factory()->create(['level' => 1]);
+    $user = User::factory()->create();
 
     ThunderApiToken::factory()->create([
         'user_id' => $user->id,

@@ -465,13 +465,6 @@ class PeckUsersDashboard extends Component
 
     public function canEdit(): bool
     {
-        $user = auth()->user();
-
-        return $user instanceof User && (int) $user->level >= 1;
-    }
-
-    public function canManageSquadron(): bool
-    {
         return $this->isAdminRole($this->thunderRole());
     }
 
@@ -481,7 +474,7 @@ class PeckUsersDashboard extends Component
      */
     public function canManageSelectedMember(): bool
     {
-        return $this->canManageSquadron() && $this->selectedMemberStatus() !== 'ex_member';
+        return $this->canEdit() && $this->selectedMemberStatus() !== 'ex_member';
     }
 
     protected function selectedMemberStatus(): ?string
@@ -531,15 +524,6 @@ class PeckUsersDashboard extends Component
     protected function ensureCanEdit(): bool
     {
         if (! $this->canEdit()) {
-            abort(403);
-        }
-
-        return $this->ensureVerifiedForEdit();
-    }
-
-    protected function ensureCanManage(): bool
-    {
-        if (! $this->canManageSquadron()) {
             abort(403);
         }
 
@@ -1000,7 +984,7 @@ class PeckUsersDashboard extends Component
 
     public function openKickConfirmModal(): void
     {
-        if (! $this->ensureCanManage()) {
+        if (! $this->ensureCanEdit()) {
             return;
         }
 
@@ -1021,7 +1005,7 @@ class PeckUsersDashboard extends Component
 
     public function kickMember(): void
     {
-        if (! $this->ensureCanManage()) {
+        if (! $this->ensureCanEdit()) {
             return;
         }
 
@@ -1067,7 +1051,7 @@ class PeckUsersDashboard extends Component
 
     public function changeMemberRole(): void
     {
-        if (! $this->ensureCanManage()) {
+        if (! $this->ensureCanEdit()) {
             return;
         }
 
