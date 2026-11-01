@@ -374,8 +374,8 @@ Response `200`:
 		{  
 			"timestamp": 1790000000,  
 			"action": { "value": 1, "detail": "Accept membership request" },  
-			"admin": { "_id": 111, "nickname": "AdminOne" },  
-			"affected": { "_id": 222, "nickname": "NewMember" }  
+			"admin": { "id": 111, "nickname": "AdminOne" },  
+			"affected": { "id": 222, "nickname": "NewMember" }  
 		}  
 	]  
 }  

@@ -32,7 +32,7 @@ class ThunderApi
             $this->throwUnreachable();
         }
 
-        if ($response->status() === 401 && $response->json('status') === '2STEP') {
+        if ($response->status() === 206 && $response->json('status') === '2STEP') {
             throw new ThunderApiTwoFactorRequiredException(
                 types: array_values((array) $response->json('types')),
                 requestId: $response->json('requestId'),
@@ -358,10 +358,10 @@ class ThunderApi
                     continue;
                 }
 
-                $nick = $entry['nick'] ?? null;
+                $username = $entry['username'] ?? null;
 
-                if (is_string($nick) && $nick !== '') {
-                    $nicknames[(int) $gaijinId] = $nick;
+                if (is_string($username) && $username !== '') {
+                    $nicknames[(int) $gaijinId] = $username;
                 }
             }
         }
@@ -470,10 +470,10 @@ class ThunderApi
                 continue;
             }
 
-            $nickname = $entry['nick'] ?? null;
+            $username = $entry['username'] ?? null;
 
-            if (is_string($nickname) && $nickname !== '') {
-                $results[(int) $gaijinId] = $nickname;
+            if (is_string($username) && $username !== '') {
+                $results[(int) $gaijinId] = $username;
             }
         }
 
