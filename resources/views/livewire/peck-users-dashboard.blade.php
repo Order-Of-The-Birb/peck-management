@@ -496,7 +496,11 @@
 
                                     <div class="flex w-full items-center">
                                         <label class="mt-1 flex flex-1 items-center gap-2">
-                                            <flux:checkbox wire:model="memberForm.sqb_part" :disabled="! $memberEditMode" />
+                                            @if ($memberEditMode)
+                                                <flux:checkbox wire:model="memberForm.sqb_part" />
+                                            @else
+                                                <flux:checkbox :checked="(bool) $selectedMember->sqb_part" disabled class="pointer-events-none" />
+                                            @endif
                                             <span class="text-sm">{{ __('Expected SQB Participation') }}</span>
                                         </label>
                                     </div>
