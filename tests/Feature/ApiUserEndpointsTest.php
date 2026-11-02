@@ -97,6 +97,40 @@ test('api users index searches by username', function () {
         ->not->toContain($nonMatchingUser->gaijin_id);
 });
 
+test('api users index sorts by username alphabetically', function () {
+    $alpha = PeckUser::factory()->create([
+        'gaijin_id' => 800020,
+    ]);
+
+    $beta = PeckUser::factory()->create([
+        'gaijin_id' => 800021,
+    ]);
+
+    $gamma = PeckUser::factory()->create([
+        'gaijin_id' => 800022,
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            (string) $beta->gaijin_id => ['username' => 'Beta_Name'],
+            (string) $alpha->gaijin_id => ['username' => 'Alpha_Name'],
+            (string) $gamma->gaijin_id => ['username' => 'gamma_name'],
+        ], 200),
+    ]);
+
+    $this->getJson('/api/v1/users?sort_by=username&sort_direction=asc')
+        ->assertOk()
+        ->assertJsonPath('data.0.gaijin_id', $alpha->gaijin_id)
+        ->assertJsonPath('data.1.gaijin_id', $beta->gaijin_id)
+        ->assertJsonPath('data.2.gaijin_id', $gamma->gaijin_id);
+
+    $this->getJson('/api/v1/users?sort_by=username&sort_direction=desc')
+        ->assertOk()
+        ->assertJsonPath('data.0.gaijin_id', $gamma->gaijin_id)
+        ->assertJsonPath('data.1.gaijin_id', $beta->gaijin_id)
+        ->assertJsonPath('data.2.gaijin_id', $alpha->gaijin_id);
+});
+
 test('api users show returns a single record with derived status', function () {
     config()->set('peck.squadron_id', '1061551');
 

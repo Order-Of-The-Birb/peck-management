@@ -13,6 +13,7 @@ use App\Http\Resources\PeckUserContextResource;
 use App\Http\Resources\PeckUserResource;
 use App\Models\PeckUser;
 use App\Models\PeckUserContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -34,6 +35,7 @@ class UserController extends Controller
                 'discord_id',
                 'tz',
                 'sqb_part',
+                'username',
             ])],
             'sort_direction' => ['nullable', 'string', Rule::in(['asc', 'desc'])],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
@@ -71,7 +73,9 @@ class UserController extends Controller
                 });
             });
 
-        if ($statusFilter !== null || $sortBy === 'status') {
+        if ($sortBy === 'username') {
+            $users = $this->paginateByUsername($query, $sortDirection, $page, $perPage);
+        } elseif ($statusFilter !== null || $sortBy === 'status') {
             $users = $query->orderBy('gaijin_id')->get();
 
             $users = $this->filterByDerivedStatus($users, $statusFilter, $sortBy, $sortDirection, $page, $perPage);
@@ -190,6 +194,41 @@ class UserController extends Controller
             ->values()
             ->forPage($page, $perPage)
             ->values();
+    }
+
+    /**
+     * Sort and paginate users alphabetically by their resolved ThunderAPI username.
+     *
+     * @param  Builder<PeckUser>  $query
+     * @return Collection<int, PeckUser>
+     */
+    private function paginateByUsername(Builder $query, string $sortDirection, int $page, int $perPage): Collection
+    {
+        $users = $query->orderBy('gaijin_id')->get();
+
+        $gaijinIds = $users
+            ->map(fn (PeckUser $user): int => (int) $user->gaijin_id)
+            ->values()
+            ->all();
+
+        $usernames = $gaijinIds === []
+            ? []
+            : app(ResolveUsernames::class)->resolve($gaijinIds);
+
+        $sorted = $users->sort(function (PeckUser $left, PeckUser $right) use ($usernames, $sortDirection): int {
+            $leftValue = mb_strtolower((string) ($usernames[(int) $left->gaijin_id] ?? ''));
+            $rightValue = mb_strtolower((string) ($usernames[(int) $right->gaijin_id] ?? ''));
+
+            $comparison = $leftValue <=> $rightValue;
+
+            if ($comparison === 0) {
+                return (int) $left->gaijin_id <=> (int) $right->gaijin_id;
+            }
+
+            return $sortDirection === 'desc' ? -$comparison : $comparison;
+        })->values();
+
+        return $sorted->forPage($page, $perPage)->values();
     }
 
     public function store(StoreApiUserRequest $request): JsonResponse
