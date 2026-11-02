@@ -131,6 +131,47 @@ test('api users index sorts by username alphabetically', function () {
         ->assertJsonPath('data.2.gaijin_id', $alpha->gaijin_id);
 });
 
+test('api users index applies status filter when sorting by username', function () {
+    config()->set('peck.squadron_id', '1061551');
+
+    $memberA = PeckUser::factory()->create([
+        'gaijin_id' => 800030,
+    ]);
+
+    $memberB = PeckUser::factory()->create([
+        'gaijin_id' => 800031,
+    ]);
+
+    $exMember = PeckUser::factory()->create([
+        'gaijin_id' => 800032,
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => (string) $memberA->gaijin_id, 'nick' => 'A', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1],
+                ['uid' => (string) $memberB->gaijin_id, 'nick' => 'B', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1],
+            ],
+            'applicants' => [],
+        ], 200),
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            (string) $memberB->gaijin_id => ['username' => 'Beta_Name'],
+            (string) $memberA->gaijin_id => ['username' => 'Alpha_Name'],
+            (string) $exMember->gaijin_id => ['username' => 'Ex_Name'],
+        ], 200),
+    ]);
+
+    $response = $this->getJson('/api/v1/users?sort_by=username&sort_direction=asc&status=member');
+
+    $response->assertOk()
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.gaijin_id', $memberA->gaijin_id)
+        ->assertJsonPath('data.1.gaijin_id', $memberB->gaijin_id);
+
+    expect(collect($response->json('data'))->pluck('gaijin_id'))
+        ->not->toContain($exMember->gaijin_id);
+});
+
 test('api users show returns a single record with derived status', function () {
     config()->set('peck.squadron_id', '1061551');
 

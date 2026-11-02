@@ -74,7 +74,7 @@ class UserController extends Controller
             });
 
         if ($sortBy === 'username') {
-            $users = $this->paginateByUsername($query, $sortDirection, $page, $perPage);
+            $users = $this->paginateByUsername($query, $sortDirection, $page, $perPage, $statusFilter);
         } elseif ($statusFilter !== null || $sortBy === 'status') {
             $users = $query->orderBy('gaijin_id')->get();
 
@@ -202,9 +202,18 @@ class UserController extends Controller
      * @param  Builder<PeckUser>  $query
      * @return Collection<int, PeckUser>
      */
-    private function paginateByUsername(Builder $query, string $sortDirection, int $page, int $perPage): Collection
+    private function paginateByUsername(Builder $query, string $sortDirection, int $page, int $perPage, ?string $statusFilter): Collection
     {
         $users = $query->orderBy('gaijin_id')->get();
+
+        if ($statusFilter !== null) {
+            $resolver = app(ResolveSquadronRoster::class);
+            $roster = $resolver->resolve();
+
+            $users = $users
+                ->filter(fn (PeckUser $user): bool => $resolver->statusFor((int) $user->gaijin_id, $roster) === $statusFilter)
+                ->values();
+        }
 
         $gaijinIds = $users
             ->map(fn (PeckUser $user): int => (int) $user->gaijin_id)
