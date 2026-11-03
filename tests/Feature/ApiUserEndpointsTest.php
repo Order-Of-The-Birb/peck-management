@@ -131,6 +131,49 @@ test('api users index sorts by username alphabetically', function () {
         ->assertJsonPath('data.2.gaijin_id', $alpha->gaijin_id);
 });
 
+test('api users index sorts by join date', function () {
+    config()->set('peck.squadron_id', '1061551');
+
+    $oldest = PeckUser::factory()->create([
+        'gaijin_id' => 800040,
+    ]);
+
+    $newest = PeckUser::factory()->create([
+        'gaijin_id' => 800041,
+    ]);
+
+    $unknown = PeckUser::factory()->create([
+        'gaijin_id' => 800042,
+    ]);
+
+    Http::fake([
+        'https://thunder.example/v1/clans/1061551' => Http::response([
+            'members' => [
+                ['uid' => (string) $newest->gaijin_id, 'nick' => 'New', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1790000000],
+                ['uid' => (string) $oldest->gaijin_id, 'nick' => 'Old', 'rank' => ['name' => 'PRIVATE', 'value' => 3], 'joined_at' => 1700000000],
+            ],
+            'applicants' => [],
+        ], 200),
+        'https://thunder.example/v1/users/terse*' => Http::response([
+            (string) $oldest->gaijin_id => ['username' => 'Old_Name'],
+            (string) $newest->gaijin_id => ['username' => 'New_Name'],
+            (string) $unknown->gaijin_id => ['username' => 'Unknown_Name'],
+        ], 200),
+    ]);
+
+    $this->getJson('/api/v1/users?sort_by=joined_at&sort_direction=asc')
+        ->assertOk()
+        ->assertJsonPath('data.0.gaijin_id', $oldest->gaijin_id)
+        ->assertJsonPath('data.1.gaijin_id', $newest->gaijin_id)
+        ->assertJsonPath('data.2.gaijin_id', $unknown->gaijin_id);
+
+    $this->getJson('/api/v1/users?sort_by=joined_at&sort_direction=desc')
+        ->assertOk()
+        ->assertJsonPath('data.0.gaijin_id', $newest->gaijin_id)
+        ->assertJsonPath('data.1.gaijin_id', $oldest->gaijin_id)
+        ->assertJsonPath('data.2.gaijin_id', $unknown->gaijin_id);
+});
+
 test('api users index applies status filter when sorting by username', function () {
     config()->set('peck.squadron_id', '1061551');
 

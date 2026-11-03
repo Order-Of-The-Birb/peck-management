@@ -36,6 +36,7 @@ class UserController extends Controller
                 'tz',
                 'sqb_part',
                 'username',
+                'joined_at',
             ])],
             'sort_direction' => ['nullable', 'string', Rule::in(['asc', 'desc'])],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
@@ -75,6 +76,8 @@ class UserController extends Controller
 
         if ($sortBy === 'username') {
             $users = $this->paginateByUsername($query, $sortDirection, $page, $perPage, $statusFilter);
+        } elseif ($sortBy === 'joined_at') {
+            $users = $this->paginateByJoinDate($query, $sortDirection, $page, $perPage, $statusFilter);
         } elseif ($statusFilter !== null || $sortBy === 'status') {
             $users = $query->orderBy('gaijin_id')->get();
 
@@ -227,6 +230,60 @@ class UserController extends Controller
         $sorted = $users->sort(function (PeckUser $left, PeckUser $right) use ($usernames, $sortDirection): int {
             $leftValue = mb_strtolower((string) ($usernames[(int) $left->gaijin_id] ?? ''));
             $rightValue = mb_strtolower((string) ($usernames[(int) $right->gaijin_id] ?? ''));
+
+            $comparison = $leftValue <=> $rightValue;
+
+            if ($comparison === 0) {
+                return (int) $left->gaijin_id <=> (int) $right->gaijin_id;
+            }
+
+            return $sortDirection === 'desc' ? -$comparison : $comparison;
+        })->values();
+
+        return $sorted->forPage($page, $perPage)->values();
+    }
+
+    /**
+     * Sort and paginate users by their ThunderAPI join date, newest first or
+     * oldest first. Users without a known join date are always placed last.
+     *
+     * @param  Builder<PeckUser>  $query
+     * @return Collection<int, PeckUser>
+     */
+    private function paginateByJoinDate(Builder $query, string $sortDirection, int $page, int $perPage, ?string $statusFilter): Collection
+    {
+        $users = $query->orderBy('gaijin_id')->get();
+
+        $resolver = app(ResolveSquadronRoster::class);
+        $roster = $resolver->resolve();
+
+        if ($statusFilter !== null) {
+            $users = $users
+                ->filter(fn (PeckUser $user): bool => $resolver->statusFor((int) $user->gaijin_id, $roster) === $statusFilter)
+                ->values();
+        }
+
+        $joinDates = [];
+
+        foreach ($users as $user) {
+            $joinDates[(int) $user->gaijin_id] = $resolver->joinDateFor((int) $user->gaijin_id, $roster);
+        }
+
+        $sorted = $users->sort(function (PeckUser $left, PeckUser $right) use ($joinDates, $sortDirection): int {
+            $leftValue = $joinDates[(int) $left->gaijin_id] ?? null;
+            $rightValue = $joinDates[(int) $right->gaijin_id] ?? null;
+
+            if ($leftValue === null && $rightValue === null) {
+                return (int) $left->gaijin_id <=> (int) $right->gaijin_id;
+            }
+
+            if ($leftValue === null) {
+                return 1;
+            }
+
+            if ($rightValue === null) {
+                return -1;
+            }
 
             $comparison = $leftValue <=> $rightValue;
 

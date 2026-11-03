@@ -102,7 +102,7 @@ Query parameters:
 - `search` (string, optional, max 255): matches `gaijin_id`, `discord_id`, or `username` using a case-insensitive partial match. Non-numeric terms are also matched against ThunderAPI nicknames.  
 - `status` (string, optional): `member | applicant | ex_member`  
 - `tz` (integer, optional): `-11..12`  
-- `sort_by` (string, optional): `gaijin_id | status | discord_id | tz | sqb_part | username` (default `gaijin_id`)  
+- `sort_by` (string, optional): `gaijin_id | status | discord_id | tz | sqb_part | username | joined_at` (default `gaijin_id`)  
 - `sort_direction` (string, optional): `asc | desc` (default `asc`)  
 - `per_page` (integer, optional): `1..100` (default `15`)  
 - `page` (integer, optional): `>= 1` (default `1`)  
