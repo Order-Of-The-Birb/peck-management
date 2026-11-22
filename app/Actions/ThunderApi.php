@@ -32,10 +32,12 @@ class ThunderApi
             $this->throwUnreachable();
         }
 
-        if ($response->status() === 206 && $response->json('status') === '2STEP') {
+        if ($response->status() === 206) {
+            $types = $response->json('types');
+
             throw new ThunderApiTwoFactorRequiredException(
-                types: array_values((array) $response->json('types')),
-                requestId: $response->json('requestId'),
+                types: is_array($types) ? array_values(array_filter($types, 'is_string')) : [],
+                requestId: is_string($response->json('requestId')) ? $response->json('requestId') : null,
                 userId: is_numeric($response->json('userId')) ? (int) $response->json('userId') : null,
             );
         }
@@ -478,6 +480,48 @@ class ThunderApi
         }
 
         return $results;
+    }
+
+    /**
+     * Fetch the localized name of a unit (vehicle).
+     *
+     * @return array{short:string,long:string}
+     *
+     * @throws ThunderApiException
+     */
+    public function localizeUnit(?string $token, string $unit, string $language = 'en'): array
+    {
+        try {
+            $response = $this->request($token)
+                ->get($this->baseUrl().'/v1/units/'.rawurlencode($unit).'/localization', [
+                    'language' => $language,
+                ]);
+        } catch (ConnectionException) {
+            $this->throwUnreachable();
+        }
+
+        if ($response->status() === 401) {
+            throw new ThunderApiUnauthorizedException('Your ThunderAPI token is no longer valid. Please reconnect your account.');
+        }
+
+        if ($response->status() === 429) {
+            throw new ThunderApiException('ThunderAPI rate limit exceeded. Please wait a bit before trying again.');
+        }
+
+        if (! $response->successful()) {
+            throw new ThunderApiException(sprintf('ThunderAPI unit localization request failed (HTTP %d).', $response->status()));
+        }
+
+        $data = $response->json();
+
+        if (! is_array($data) || ! is_string($data['short'] ?? null) || ! is_string($data['long'] ?? null)) {
+            throw new ThunderApiException('Malformed unit localization response.');
+        }
+
+        return [
+            'short' => $data['short'],
+            'long' => $data['long'],
+        ];
     }
 
     /**

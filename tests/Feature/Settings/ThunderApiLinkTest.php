@@ -88,6 +88,25 @@ test('user can link a thunderapi account with two factor authentication', functi
     expect($token?->token)->toBe('two-factor-token');
 });
 
+test('a two factor challenge without a response body still starts the two factor flow', function () {
+    $user = User::factory()->create();
+
+    $this->actingAs($user);
+
+    Http::fake([
+        'https://thunder.example/v1/login' => Http::response([], 206),
+    ]);
+
+    Livewire::test('pages::settings.profile')
+        ->set('thunderEmail', 'thunder@example.com')
+        ->set('thunderPassword', 'secret-password')
+        ->call('submitThunderLogin')
+        ->assertSet('twoFactorRequired', true)
+        ->assertSet('thunderError', null);
+
+    expect(ThunderApiToken::query()->exists())->toBeFalse();
+});
+
 test('invalid thunderapi credentials show an error and store nothing', function () {
     $user = User::factory()->create();
 
